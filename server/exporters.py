@@ -13,6 +13,7 @@ class ArchitectureExporters:
         "yolov7": "yolov7",
         "yolox": "yolox",
         "ppyoloe": "ppyoloe",
+        "lprnet": "lprnet",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -25,7 +26,7 @@ class ArchitectureExporters:
     def supports(self, architecture, suffix, vendor):
         if vendor != "rockchip":
             return False
-        if architecture in {"mobilenet", "resnet", "yolox", "retinaface"}:
+        if architecture in {"mobilenet", "resnet", "yolox", "retinaface", "lprnet"}:
             return suffix.lower() == ".pth"
         if architecture == "ppyoloe":
             return suffix.lower() == ".pdparams"
@@ -53,6 +54,16 @@ class ArchitectureExporters:
                 "--output", str(output), "--metadata", str(work / "export_metadata.json"),
                 "--imgsz", "320",
             ], repo)
+            return output
+        if architecture == "lprnet":
+            output = work / "model.onnx"
+            self._run([
+                sys.executable, str(self.root / "server" / "lprnet_export_worker.py"),
+                "--zoo-script", str(self.root / "vendor" / "rknn_model_zoo" /
+                                     "examples" / "LPRNet" / "python" / "export_onnx.py"),
+                "--model", str(source.resolve()), "--output", str(output),
+                "--metadata", str(work / "export_metadata.json"),
+            ], self.root)
             return output
         if architecture == "ppyoloe":
             repo = self.repos / "ppyoloe"

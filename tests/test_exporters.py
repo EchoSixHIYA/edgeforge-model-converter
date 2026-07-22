@@ -50,6 +50,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("retinaface", ".onnx", "rockchip")
     assert exporter.supports("ppyoloe", ".pdparams", "rockchip")
     assert not exporter.supports("ppyoloe", ".onnx", "rockchip")
+    assert exporter.supports("lprnet", ".pth", "rockchip")
+    assert not exporter.supports("lprnet", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -88,6 +90,23 @@ def test_ppyoloe_decodes_its_nine_output_contract():
     assert boxes.shape == (1, 4)
     assert classes.tolist() == [5]
     assert scores.tolist() == pytest.approx([.9])
+
+
+def test_lprnet_collapses_repeats_and_blank_tokens():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_lprnet
+
+    logits = np.full((1, 68, 8), -10.0, dtype=np.float32)
+    # 京, 京, blank, A, A, blank, 1, blank -> 京A1
+    for timestep, token in enumerate((0, 0, 67, 41, 41, 67, 32, 67)):
+        logits[0, token, timestep] = 10.0
+
+    results = _postprocess_lprnet([logits])
+
+    assert len(results) == 1
+    assert results[0].text == "京A1"
+    assert results[0].token_ids == (0, 41, 32)
+    assert results[0].score > .99
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

@@ -75,6 +75,21 @@ class FaceDetection:
 
 
 @dataclass(frozen=True)
+class TextRecognition:
+    text: str
+    score: float
+    token_ids: tuple
+
+    @property
+    def label(self):
+        return self.text
+
+    def as_dict(self):
+        return {"text": self.text, "score": self.score,
+                "token_ids": list(self.token_ids)}
+
+
+@dataclass(frozen=True)
 class Classification:
     class_id: int
     label: str
@@ -200,7 +215,7 @@ class _ModelBase:
             raise NotImplementedError(
                 f"{self.config.get('task_type')} 尚未注册对应模态的 preprocess()")
         original = _read_image(image)
-        if self.config.get("task_type") == "classification":
+        if self.config.get("task_type") in {"classification", "text_recognition"}:
             width, height = self.config["input_size"]
             tensor = cv2.resize(original, (width, height))
             if self.config.get("color_order", "rgb").lower() == "rgb":
@@ -222,6 +237,8 @@ class _ModelBase:
         task_type = self.config.get("task_type", "object_detection")
         if task_type == "classification":
             return _postprocess_classification(outputs, self.config.get("labels", []), top_k)
+        if task_type == "text_recognition" and architecture == "lprnet":
+            return _postprocess_lprnet(outputs)
         if task_type == "face_detection" and architecture == "retinaface":
             boxes, scores, landmarks = _postprocess_retinaface(
                 outputs, tuple(self.config["input_size"]), confidence, iou)
@@ -797,6 +814,44 @@ def _postprocess_retinaface(outputs, size, confidence, iou):
     return boxes[selected], scores[selected], landmarks[selected]
 
 
+_LPRNET_CHARS = (
+    "京", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑",
+    "苏", "浙", "皖", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤",
+    "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M",
+    "N", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "I", "O", "-",
+)
+
+
+def _postprocess_lprnet(outputs):
+    if len(outputs) != 1:
+        raise ValueError(f"LPRNet expected one output tensor, got {len(outputs)}")
+    logits = np.asarray(outputs[0], dtype=np.float32)
+    if logits.ndim != 3 or logits.shape[1] != len(_LPRNET_CHARS):
+        raise ValueError(f"unexpected LPRNet output shape: {logits.shape}")
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    probabilities = np.exp(shifted)
+    probabilities /= probabilities.sum(axis=1, keepdims=True)
+    results = []
+    blank = len(_LPRNET_CHARS) - 1
+    for batch_logits, batch_probabilities in zip(logits, probabilities):
+        best = batch_logits.argmax(axis=0)
+        token_ids, token_scores = [], []
+        previous = blank
+        for timestep, token in enumerate(best):
+            token = int(token)
+            if token != previous and token != blank:
+                token_ids.append(token)
+                token_scores.append(float(batch_probabilities[token, timestep]))
+            previous = token
+        text = "".join(_LPRNET_CHARS[token] for token in token_ids)
+        score = float(np.mean(token_scores)) if token_scores else 0.0
+        results.append(TextRecognition(text, score, tuple(token_ids)))
+    return results
+
+
 def _restore_boxes(boxes, transform, shape):
     ratio, left, top = transform
     result = boxes.copy()
@@ -906,3 +961,7 @@ class RetinaFace(_ModelBase):
 
 class PPYoloE(_ModelBase):
     architecture = "ppyoloe"
+
+
+class LPRNet(_ModelBase):
+    architecture = "lprnet"
