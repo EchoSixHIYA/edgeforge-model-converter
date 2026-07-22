@@ -114,6 +114,26 @@ class AudioClassification:
                 "score": self.score, "rank": self.rank}
 
 
+@dataclass(frozen=True)
+class SegmentationMask:
+    mask: np.ndarray
+    labels: tuple
+
+    @property
+    def class_ids(self):
+        return tuple(int(value) for value in np.unique(self.mask))
+
+    def as_dict(self):
+        ids, counts = np.unique(self.mask, return_counts=True)
+        return {
+            "mask_shape": list(self.mask.shape),
+            "classes": [{"class_id": int(class_id),
+                         "label": self.labels[int(class_id)] if int(class_id) < len(self.labels) else str(int(class_id)),
+                         "pixels": int(count)}
+                        for class_id, count in zip(ids, counts)],
+        }
+
+
 class _ModelBase:
     """Stable inference API for an EdgeForge-generated RKNN model."""
 
@@ -230,7 +250,7 @@ class _ModelBase:
             raise NotImplementedError(
                 f"{self.config.get('task_type')} 尚未注册 {modality} 模态的 preprocess()")
         original = _read_image(source)
-        if self.config.get("task_type") in {"classification", "text_recognition"}:
+        if self.config.get("task_type") in {"classification", "text_recognition", "semantic_segmentation"}:
             width, height = self.config["input_size"]
             tensor = cv2.resize(original, (width, height))
             if self.config.get("color_order", "rgb").lower() == "rgb":
@@ -254,6 +274,9 @@ class _ModelBase:
             return _postprocess_classification(outputs, self.config.get("labels", []), top_k)
         if task_type == "audio_classification" and architecture == "yamnet":
             return _postprocess_yamnet(outputs, self.config.get("labels", []), top_k)
+        if task_type == "semantic_segmentation" and architecture == "ppseg":
+            return _postprocess_semantic_mask(
+                outputs, self.config.get("labels", []), tuple(context["original_shape"]))
         if task_type == "text_recognition" and architecture == "lprnet":
             return _postprocess_lprnet(outputs)
         if task_type == "face_detection" and architecture == "retinaface":
@@ -344,6 +367,15 @@ class _ModelBase:
         if self.config.get("modality", "image") != "image":
             raise NotImplementedError("draw() 仅适用于图像模型；音频分类结果请读取 label/score")
         canvas = _read_image(image).copy()
+        if isinstance(results, SegmentationMask):
+            palette = np.asarray(self.config.get("palette", []), dtype=np.uint8)
+            if len(palette) <= int(results.mask.max(initial=0)):
+                raise ValueError("semantic segmentation palette does not cover every class ID")
+            colors_bgr = palette[results.mask][..., ::-1]
+            canvas = cv2.addWeighted(canvas, .45, colors_bgr, .55, 0)
+            if output:
+                cv2.imwrite(str(output), canvas)
+            return canvas
         for index, result in enumerate(results):
             if isinstance(result, OrientedDetection):
                 polygon = np.asarray(result.points, dtype=np.int32)
@@ -505,6 +537,25 @@ def _postprocess_yamnet(outputs, labels, top_k):
     return [AudioClassification(int(class_id), labels[int(class_id)],
                                 float(scores[class_id]), rank)
             for rank, class_id in enumerate(indices, start=1)]
+
+
+def _postprocess_semantic_mask(outputs, labels, original_shape):
+    if len(outputs) != 1:
+        raise ValueError(f"semantic segmentation expected one output tensor, got {len(outputs)}")
+    logits = np.asarray(outputs[0], dtype=np.float32)
+    if logits.ndim != 4 or logits.shape[0] != 1:
+        raise ValueError(f"semantic segmentation expected [1,C,H,W] or [1,H,W,C], got {logits.shape}")
+    class_count = len(labels)
+    if class_count and logits.shape[1] == class_count:
+        mask = logits[0].argmax(axis=0)
+    elif class_count and logits.shape[-1] == class_count:
+        mask = logits[0].argmax(axis=-1)
+    else:
+        raise ValueError(f"semantic output has no axis matching {class_count} configured classes: {logits.shape}")
+    height, width = original_shape
+    if mask.shape != (height, width):
+        mask = cv2.resize(mask.astype(np.int32), (width, height), interpolation=cv2.INTER_NEAREST)
+    return SegmentationMask(mask.astype(np.int32), tuple(labels))
 
 
 def _letterbox(image, size):
@@ -1061,3 +1112,7 @@ class LPRNet(_ModelBase):
 
 class YAMNet(_ModelBase):
     architecture = "yamnet"
+
+
+class PPLiteSeg(_ModelBase):
+    architecture = "ppseg"

@@ -1,9 +1,9 @@
 import argparse
 import json
 
-from . import LPRNet, MobileNetV2, PPYoloE, ResNet50, RetinaFace, YAMNet, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
+from . import LPRNet, MobileNetV2, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
 
-MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, LPRNet, MobileNetV2, PPYoloE, ResNet50, RetinaFace, YAMNet)}
+MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, LPRNet, MobileNetV2, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet)}
 
 parser = argparse.ArgumentParser(description="EdgeForge model inference")
 parser.add_argument("model_class", choices=sorted(MODELS))
@@ -17,4 +17,5 @@ with MODELS[args.model_class](args.model) as model:
     detections = model.predict(args.source, confidence=args.confidence)
     if model.config.get("modality") == "image":
         model.draw(args.source, detections, args.output)
-print(json.dumps([item.as_dict() for item in detections], ensure_ascii=False, indent=2))
+payload = detections.as_dict() if hasattr(detections, "as_dict") else [item.as_dict() for item in detections]
+print(json.dumps(payload, ensure_ascii=False, indent=2))

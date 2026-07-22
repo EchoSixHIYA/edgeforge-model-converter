@@ -54,6 +54,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("lprnet", ".onnx", "rockchip")
     assert exporter.supports("yamnet", ".zip", "rockchip")
     assert not exporter.supports("yamnet", ".onnx", "rockchip")
+    assert exporter.supports("ppseg", ".pdparams", "rockchip")
+    assert not exporter.supports("ppseg", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -131,6 +133,21 @@ def test_yamnet_resamples_audio_and_averages_frame_scores():
     assert [item.label for item in results] == ["Animal", "Music"]
     assert results[0].score == pytest.approx(.7)
     assert results[0].rank == 1
+
+
+def test_ppseg_returns_original_size_semantic_mask():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_semantic_mask
+
+    logits = np.zeros((1, 3, 4, 5), dtype=np.float32)
+    logits[:, 1, :2] = 2.0
+    logits[:, 2, 2:] = 3.0
+    result = _postprocess_semantic_mask(
+        [logits], ["road", "person", "car"], (8, 10))
+
+    assert result.mask.shape == (8, 10)
+    assert result.class_ids == (1, 2)
+    assert result.as_dict()["classes"][0]["label"] == "person"
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

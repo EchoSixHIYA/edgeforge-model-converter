@@ -13,6 +13,7 @@ class ArchitectureExporters:
         "yolov7": "yolov7",
         "yolox": "yolox",
         "ppyoloe": "ppyoloe",
+        "ppseg": "ppseg",
         "lprnet": "lprnet",
         "yamnet": "yamnet",
         "retinaface": "retinaface",
@@ -31,6 +32,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".pth"
         if architecture == "ppyoloe":
             return suffix.lower() == ".pdparams"
+        if architecture == "ppseg":
+            return suffix.lower() == ".pdparams"
         if architecture == "yamnet":
             return suffix.lower() == ".zip"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
@@ -47,6 +50,23 @@ class ArchitectureExporters:
                 "--architecture", model_name, "--model", str(source.resolve()),
                 "--output", str(output), "--metadata", str(work / "export_metadata.json"),
             ], self.root)
+            return output
+        if architecture == "ppseg":
+            repo = self.repos / "ppseg"
+            output = work / "model.onnx"
+            paddle_python = Path(os.environ.get(
+                "EDGEFORGE_PPSEG_PYTHON", os.environ.get(
+                    "EDGEFORGE_PPYOLOE_PYTHON",
+                    str(Path(sys.prefix).parent / ".edgeforge-ppyoloe-export-venv" /
+                        "bin" / "python"))))
+            if not paddle_python.is_file():
+                raise RuntimeError(
+                    f"缺少 PaddleSeg 独立导出环境: {paddle_python}；请重新运行 scripts/setup_wsl.sh")
+            self._run([
+                str(paddle_python), str(self.root / "server" / "ppseg_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(output), "--metadata", str(work / "export_metadata.json"),
+            ], repo)
             return output
         if architecture == "retinaface":
             repo = self.repos / "retinaface"

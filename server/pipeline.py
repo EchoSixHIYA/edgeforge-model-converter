@@ -25,6 +25,7 @@ SDK_CLASSES = {
     "ppyoloe": "PPYoloE",
     "lprnet": "LPRNet",
     "yamnet": "YAMNet",
+    "ppseg": "PPLiteSeg",
 }
 
 
@@ -148,6 +149,8 @@ class Pipeline:
         }
         if export_metadata.get("anchors"):
             runtime_config["anchors"] = export_metadata["anchors"]
+        if export_metadata.get("palette"):
+            runtime_config["palette"] = export_metadata["palette"]
         for key in ("sample_rate", "sample_count", "chunk_seconds"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
@@ -159,8 +162,11 @@ class Pipeline:
         sdk_class = SDK_CLASSES.get(cfg["id"])
         if not sdk_class:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
-        demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio":
+        if cfg["id"] == "ppseg":
+            demo_name = "test.png"
+        else:
+            demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
+        if cfg["modality"] == "audio" or cfg["id"] == "ppseg":
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)

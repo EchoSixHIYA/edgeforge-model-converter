@@ -10,7 +10,7 @@ with YoloV10("models/yolov10") as model:
     results = model.predict("test.jpg")
 ```
 
-已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
+已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、颜色表、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
 
 ## 1. 安装与运行环境
 
@@ -112,6 +112,18 @@ from edgeforge_sdk import YAMNet
 with YAMNet("model") as model:
     events = model.predict("test.wav", top_k=5)
     print([item.as_dict() for item in events])
+```
+
+语义分割使用显式 `PPLiteSeg`，返回单个 `SegmentationMask`，而不是检测框列表。`mask` 是还原至原图尺寸的二维类别 ID 数组，`class_ids` 是图中实际出现的类别，`as_dict()` 返回掩码尺寸和各类像素数；`draw()` 使用随模型打包的 Cityscapes 颜色表生成叠加图：
+
+```python
+from edgeforge_sdk import PPLiteSeg
+
+with PPLiteSeg("model") as model:
+    segmentation = model.predict("test.png")
+    print(segmentation.class_ids)
+    print(segmentation.as_dict())
+    model.draw("test.png", segmentation, "result.png")
 ```
 
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
@@ -220,7 +232,7 @@ image → preprocess() → infer_raw() → postprocess() → 结构化结果
 |---|---|---|---|
 | 图像分类 | 图片 | `list[Classification]` | Softmax、Top-K、类别标签映射 |
 | 目标检测 | 图片 | `list[Detection]` | 框解码、阈值、NMS、坐标还原 |
-| 语义分割 | 图片 | `SegmentationMask` | 类别 logits/argmax、掩码缩放与裁剪 |
+| 语义分割 | 图片 | `SegmentationMask` | 类别 logits/argmax、最近邻恢复原图尺寸、颜色表绘制 |
 | 实例分割 | 图片 | `list[InstanceMask]` | 检测框、prototype mask、掩码还原 |
 | 姿态估计 | 图片 | `list[Pose]` | 框与关键点解码、关键点坐标还原 |
 | OCR | 图片或图片列表 | `list[OCRResult]` | 文本区域检测、裁剪排序、字符解码 |

@@ -33,6 +33,12 @@ for exporter in "${!exporter_repos[@]}"; do
   fi
 done
 
+PPSEG_REPO="vendor/exporters/ppseg"
+if [[ ! -d "$PPSEG_REPO/.git" ]]; then
+  git clone --branch release/2.8 --single-branch --depth 1 --filter=blob:none \
+    https://github.com/PaddlePaddle/PaddleSeg.git "$PPSEG_REPO"
+fi
+
 PPYOLOE_REPO="vendor/exporters/ppyoloe"
 if [[ ! -d "$PPYOLOE_REPO/.git" ]]; then
   git clone --branch release/2.5 --single-branch --depth 1 --filter=blob:none --no-checkout \
@@ -61,7 +67,8 @@ python3 -m venv "$PPYOLOE_VENV"
 "$PPYOLOE_VENV/bin/python" -m pip install numpy==1.24.4 \
   paddlepaddle==2.5.2 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
 "$PPYOLOE_VENV/bin/python" -m pip install paddle2onnx==1.0.9 tqdm typeguard==2.13.3 \
-  visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools
+  visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools \
+  scikit-learn prettytable filelock
 
 # YAMNet accepts an original TensorFlow SavedModel ZIP.  Keep its pinned
 # conversion stack isolated from the site's RKNN/PyTorch environment.

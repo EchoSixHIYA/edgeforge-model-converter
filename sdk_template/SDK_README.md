@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -68,6 +68,17 @@ from edgeforge_sdk import YAMNet
 with YAMNet("model") as model:
     events = model.predict("test.wav", top_k=5)
     print([item.as_dict() for item in events])
+```
+
+PP-LiteSeg 返回单个 `SegmentationMask`。`mask` 是原图尺寸的二维类别 ID 数组，`class_ids` 列出实际出现的类别，`as_dict()` 给出每类像素统计：
+
+```python
+from edgeforge_sdk import PPLiteSeg
+
+with PPLiteSeg("model") as model:
+    segmentation = model.predict("test.png")
+    print(segmentation.as_dict())
+    model.draw("test.png", segmentation, "result.png")
 ```
 
 ## `infer_raw()`

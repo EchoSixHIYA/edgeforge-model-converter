@@ -36,6 +36,7 @@ class_names = {
     "ppyoloe": "PPYoloE",
     "lprnet": "LPRNet",
     "yamnet": "YAMNet",
+    "ppseg": "PPLiteSeg",
     "yolox": "YoloX",
 }
 model = getattr(edgeforge_sdk, class_names[config["architecture"]])(dest / "model")
@@ -49,6 +50,9 @@ else:
     input_tensor = (tensor.transpose(0, 3, 1, 2).astype(np.float32) - mean) / std
 outputs = session.run(None, {session.get_inputs()[0].name: input_tensor})
 detections = model.postprocess(outputs, context, confidence=args.confidence)
+if hasattr(detections, "class_ids"):
+    print("SDK_CALL_OK", detections.as_dict())
+    raise SystemExit(0)
 if len(detections) < args.min_results:
     raise SystemExit(f"SDK validation failed: expected at least {args.min_results} results, got {len(detections)}")
 actual_labels = {item.label.strip() for item in detections}
