@@ -106,6 +106,20 @@ class OCRResult:
 
 
 @dataclass(frozen=True)
+class Similarity:
+    text: str
+    score: float
+    rank: int
+
+    @property
+    def label(self):
+        return self.text
+
+    def as_dict(self):
+        return {"text": self.text, "score": self.score, "rank": self.rank}
+
+
+@dataclass(frozen=True)
 class Classification:
     class_id: int
     label: str
@@ -1467,6 +1481,108 @@ class PPOCR(MobileSAM):
             cv2.polylines(canvas, [polygon], True, (0, 255, 0), 2)
             cv2.putText(canvas, result.text, tuple(polygon[0]), cv2.FONT_HERSHEY_SIMPLEX,
                         .45, (0, 255, 0), 1, cv2.LINE_AA)
+        if output:
+            cv2.imwrite(str(output), canvas)
+        return canvas
+
+
+class CLIP(MobileSAM):
+    """CLIP image/text encoders with the packaged Hugging Face tokenizer."""
+
+    architecture = "clip"
+
+    def _component_paths(self):
+        files = self.config.get("model_files")
+        if set(files or {}) != {"image", "text"}:
+            raise ValueError("CLIP config must declare image and text model_files")
+        base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+        paths = {name: base / filename for name, filename in files.items()}
+        missing = [str(path) for path in paths.values() if not path.is_file()]
+        if missing:
+            raise ValueError(f"CLIP model components not found: {missing}")
+        return paths
+
+    def _tokenizer(self):
+        from tokenizers import Tokenizer
+
+        base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+        path = base / self.config.get("tokenizer_directory", "tokenizer") / "tokenizer.json"
+        if not path.is_file():
+            raise ValueError(f"CLIP tokenizer not found: {path}")
+        return Tokenizer.from_file(str(path))
+
+    def infer_raw(self, inputs, *, component):
+        """Run the ``image`` or ``text`` encoder and return untouched embeddings."""
+        if component not in {"image", "text"}:
+            raise ValueError("CLIP component must be 'image' or 'text'")
+        self.load()
+        values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        outputs = self.engines[component].inference(inputs=values)
+        if outputs is None:
+            raise RuntimeError(f"CLIP {component} inference returned no outputs")
+        return outputs
+
+    def preprocess(self, source):
+        image = cv2.cvtColor(_read_image(source), cv2.COLOR_BGR2RGB)
+        crop = int(self.config["input_size"][0])
+        height, width = image.shape[:2]
+        if height < crop:
+            before = (crop - height) // 2
+            image = np.pad(image, ((before, crop - height - before), (0, 0), (0, 0)))
+        if width < crop:
+            before = (crop - width) // 2
+            image = np.pad(image, ((0, 0), (before, crop - width - before), (0, 0)))
+        height, width = image.shape[:2]
+        if height > crop and width > crop:
+            top, left = (height - crop) // 2, (width - crop) // 2
+            image = image[top:top + crop, left:left + crop]
+        image = cv2.resize(image, tuple(self.config["input_size"]), interpolation=cv2.INTER_LINEAR)
+        return np.expand_dims(image.astype(np.uint8), 0), {}
+
+    def _tokenize(self, texts):
+        tokenizer = self._tokenizer()
+        length = int(self.config.get("sequence_length", 20))
+        pad = int(self.config.get("pad_token_id", 49407))
+        result = np.full((len(texts), length), pad, dtype=np.int64)
+        for index, text in enumerate(texts):
+            ids = tokenizer.encode(str(text)).ids[:length]
+            result[index, :len(ids)] = ids
+        return result
+
+    def postprocess(self, outputs, context, **_):
+        if len(outputs) != 2:
+            raise ValueError("CLIP postprocess expects image and text embedding arrays")
+        image = np.asarray(outputs[0], dtype=np.float32).reshape(1, -1)
+        text = np.asarray(outputs[1], dtype=np.float32).reshape(len(context["texts"]), -1)
+        if image.shape[1] != text.shape[1]:
+            raise ValueError(f"CLIP embedding mismatch: {image.shape} vs {text.shape}")
+        image /= np.maximum(np.linalg.norm(image, axis=1, keepdims=True), 1e-12)
+        text /= np.maximum(np.linalg.norm(text, axis=1, keepdims=True), 1e-12)
+        logits = (text @ image.T).reshape(-1) * np.exp(float(self.config.get("logit_scale", 4.605170249938965)))
+        probabilities = np.exp(logits - logits.max()); probabilities /= probabilities.sum()
+        order = np.argsort(probabilities)[::-1]
+        return [Similarity(str(context["texts"][index]), float(probabilities[index]), rank)
+                for rank, index in enumerate(order, start=1)]
+
+    def predict(self, source, *, texts, **_):
+        texts = list(texts)
+        if not texts:
+            raise ValueError("CLIP predict requires at least one text candidate")
+        image_tensor, _ = self.preprocess(source)
+        image_embedding = self.infer_raw(image_tensor, component="image")[0]
+        token_ids = self._tokenize(texts)
+        text_embeddings = []
+        for row in token_ids:
+            text_embeddings.append(self.infer_raw(row[None, :], component="text")[0])
+        return self.postprocess(
+            [image_embedding, np.concatenate(text_embeddings, axis=0)], {"texts": texts})
+
+    def draw(self, image, results, output=None):
+        canvas = _read_image(image).copy()
+        for index, result in enumerate(results):
+            cv2.putText(canvas, f"{result.rank}. {result.text}: {result.score:.3f}",
+                        (12, 28 + index * 24), cv2.FONT_HERSHEY_SIMPLEX,
+                        .55, (42, 108, 82), 2, cv2.LINE_AA)
         if output:
             cv2.imwrite(str(output), canvas)
         return canvas

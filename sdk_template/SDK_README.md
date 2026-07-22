@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPOCR`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPOCR`、`CLIP`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、tokenizer、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -131,6 +131,21 @@ with PPOCR("model") as model:
 ```
 
 分步调用使用 `component="det"` 或 `component="rec"`。检测结果必须经过透视裁剪后才能送入识别模型，一般业务请使用 `predict()` 自动完成整个流水线。
+
+CLIP 的模型目录包含图像/文本两个 RKNN 和 tokenizer。候选文本数量可变，SDK 会逐条编码并返回概率排名：
+
+```python
+from edgeforge_sdk import CLIP
+
+with CLIP("model") as model:
+    matches = model.predict(
+        "dog_224x224.jpg",
+        texts=["a photo of a dog", "a photo of a cat"],
+    )
+    print([item.as_dict() for item in matches])
+```
+
+分步裸推理使用 `component="image"` 或 `component="text"`；业务调用请保留随包 `tokenizer/` 并优先使用 `predict()`。
 
 ## `postprocess()`
 

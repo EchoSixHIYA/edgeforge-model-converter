@@ -62,6 +62,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("mobilesam", ".onnx", "rockchip")
     assert exporter.supports("ppocr", ".zip", "rockchip")
     assert not exporter.supports("ppocr", ".onnx", "rockchip")
+    assert exporter.supports("clip", ".bin", "rockchip")
+    assert not exporter.supports("clip", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -194,6 +196,21 @@ def test_ppocr_ctc_removes_blank_and_repeated_tokens():
     text, score = _ppocr_ctc(probabilities, ["纯", "臻", " "])
     assert text == "纯臻 "
     assert score == pytest.approx(.9)
+
+
+def test_clip_similarity_returns_ranked_text_candidates():
+    import numpy as np
+    from sdk_template.edgeforge_sdk import CLIP, Similarity
+
+    model = object.__new__(CLIP)
+    model.config = {"logit_scale": np.log(100.0)}
+    results = model.postprocess(
+        [np.asarray([[1.0, 0.0]], dtype=np.float32),
+         np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)],
+        {"texts": ["dog", "cat"]})
+    assert all(isinstance(item, Similarity) for item in results)
+    assert [item.text for item in results] == ["dog", "cat"]
+    assert results[0].score > .99
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

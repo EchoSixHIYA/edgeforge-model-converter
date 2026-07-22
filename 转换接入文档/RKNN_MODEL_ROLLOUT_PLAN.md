@@ -64,7 +64,8 @@
 | DeepLabV3+ | 完成，接受 Zoo 上游 TensorFlow 冻结图 `.pb` | 完成，显式 `DeepLabV3Plus`、logits 双线性恢复与 Pascal VOC 掩码 | RK3588 FP；官方参考叠加图 MAE `0.095` | 开放 |
 | MobileSAM | 完成，接受官方 `mobile_sam.pt`，固定导出 448px encoder 与双提示 decoder | 完成，显式 `MobileSAM`、双 RKNN 调度、点/框提示和 `InteractiveMask` | RK3588 FP；官方 `picture.jpg` 与结果图掩码 IoU `0.934` | 开放 |
 | PPOCR Det / Rec | 完成，接受含官方 PP-OCRv4 det/rec Paddle 推理 tar 的 ZIP | 完成，显式 `PPOCR`、双 RKNN 调度、DB 检测、透视裁剪、CTC 中文解码与 `OCRResult` | RK3588 FP；官方系统图识别 16 行，首行 `纯臻营养护发素` | 开放 |
-| 其余 7 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
+| CLIP ViT-B/32 | 完成，接受官方 `pytorch_model.bin`，导出 image/text 双编码器 | 完成，显式 `CLIP`、随包 tokenizer、双 RKNN 调度与 `Similarity` 排名 | RK3588 FP；官方狗图 dog `0.9895`、cat `0.0105` | 开放 |
+| 其余 6 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
 
 ## YOLOv8 当前执行清单
 

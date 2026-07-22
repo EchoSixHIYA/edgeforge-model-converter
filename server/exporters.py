@@ -19,6 +19,7 @@ class ArchitectureExporters:
         "yamnet": "yamnet",
         "mobilesam": "mobilesam",
         "ppocr": "ppocr",
+        "clip": "clip",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -45,6 +46,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".pt"
         if architecture == "ppocr":
             return suffix.lower() == ".zip"
+        if architecture == "clip":
+            return suffix.lower() == ".bin"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
@@ -181,6 +184,19 @@ class ArchitectureExporters:
                                     "PPOCR" / "PPOCR-Rec" / "model" / "ppocr_keys_v1.txt"),
             ], self.root)
             return {"det": det, "rec": rec}
+        if architecture == "clip":
+            image_model = work / "image.onnx"
+            text_model = work / "text.onnx"
+            assets = self.repos / "clip"
+            progress(24, "从 CLIP ViT-B/32 官方 PyTorch 权重导出图像与文本编码器")
+            self._run([
+                sys.executable, str(self.root / "server" / "clip_export_worker.py"),
+                "--model", str(source.resolve()), "--assets", str(assets),
+                "--image", str(image_model), "--text", str(text_model),
+                "--tokenizer-output", str(work / "tokenizer"),
+                "--metadata", str(work / "export_metadata.json"),
+            ], self.root)
+            return {"image": image_model, "text": text_model}
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"
         progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")

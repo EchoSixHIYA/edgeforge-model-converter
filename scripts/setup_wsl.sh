@@ -33,7 +33,15 @@ for exporter in "${!exporter_repos[@]}"; do
     git clone --depth 1 "${exporter_repos[$exporter]}" "vendor/exporters/$exporter"
   fi
 done
-python -m pip install timm==1.0.19
+python -m pip install timm==1.0.19 transformers==4.46.3
+
+CLIP_ASSETS="vendor/exporters/clip"
+mkdir -p "$CLIP_ASSETS"
+if [[ ! -f "$CLIP_ASSETS/tokenizer.json" || ! -f "$CLIP_ASSETS/config.json" ]]; then
+  HF_HUB_DISABLE_XET=1 hf download openai/clip-vit-base-patch32 \
+    --include config.json preprocessor_config.json tokenizer.json tokenizer_config.json \
+    special_tokens_map.json vocab.json merges.txt --local-dir "$CLIP_ASSETS" --max-workers 1
+fi
 
 PPOCR_REPO="vendor/exporters/ppocr"
 if [[ ! -d "$PPOCR_REPO/.git" ]]; then

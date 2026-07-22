@@ -29,6 +29,7 @@ SDK_CLASSES = {
     "deeplabv3": "DeepLabV3Plus",
     "mobilesam": "MobileSAM",
     "ppocr": "PPOCR",
+    "clip": "CLIP",
 }
 
 
@@ -74,6 +75,8 @@ class Pipeline:
             if cfg["id"] == "mobilesam" and component == "decoder":
                 options["fuse_normalization"] = False
             if cfg["id"] == "ppocr" and component == "rec":
+                options["fuse_normalization"] = False
+            if cfg["id"] == "clip" and component == "text":
                 options["fuse_normalization"] = False
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
@@ -161,6 +164,10 @@ class Pipeline:
             shutil.copy2(output, stage / "edgeforge_sdk" / embedded_name)
         for onnx_path in onnx_models.values():
             shutil.copy2(onnx_path, model_dir / onnx_path.name)
+        tokenizer_dir = work / "tokenizer"
+        if tokenizer_dir.is_dir():
+            shutil.copytree(tokenizer_dir, model_dir / "tokenizer", dirs_exist_ok=True)
+            shutil.copytree(tokenizer_dir, stage / "edgeforge_sdk" / "tokenizer", dirs_exist_ok=True)
         export_metadata = self._extract_export_metadata(work)
         primary_onnx = next(iter(onnx_models.values()))
         labels = ([] if cfg["id"] == "mobilesam" else
@@ -178,7 +185,7 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters"):
+        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters", "sequence_length", "pad_token_id", "logit_scale", "tokenizer_directory"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
         if len(outputs) > 1:
@@ -192,7 +199,9 @@ class Pipeline:
         sdk_class = SDK_CLASSES.get(cfg["id"])
         if not sdk_class:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
-        if cfg["id"] == "mobilesam":
+        if cfg["id"] == "clip":
+            demo_name = "dog_224x224.jpg"
+        elif cfg["id"] == "mobilesam":
             demo_name = "picture.jpg"
         elif cfg["id"] == "ppseg":
             demo_name = "test.png"
@@ -200,11 +209,18 @@ class Pipeline:
             demo_name = "test_image.jpg"
         else:
             demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam", "ppocr"}:
+        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam", "ppocr", "clip"}:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)
-        if cfg["id"] == "mobilesam":
+        if cfg["id"] == "clip":
+            example_text = (
+                f"from edgeforge_sdk import {sdk_class}\n\n"
+                f"with {sdk_class}(\"model\") as model:\n"
+                f"    results = model.predict(\"{demo_name}\", texts=[\"a photo of a dog\", \"a photo of a cat\"])\n"
+                "    print([item.as_dict() for item in results])\n"
+                f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n")
+        elif cfg["id"] == "mobilesam":
             example_text = (
                 f"from edgeforge_sdk import {sdk_class}\n\n"
                 f"with {sdk_class}(\"model\") as model:\n"

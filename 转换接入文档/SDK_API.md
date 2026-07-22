@@ -166,6 +166,21 @@ with PPOCR("model") as model:
 
 分步调用须使用 `infer_raw(inputs, component="det")` 或 `infer_raw(inputs, component="rec")`，并将同一组件传给 `postprocess(..., component=...)`。检测组件返回四点区域，识别组件返回 `(text, score)`；完整的检测到识别调度应优先交给 `predict()`。
 
+CLIP 使用同一模型目录中的 `image.rknn`、`text.rknn` 和 `tokenizer/`。`predict()` 接收一张图片和一个或多个候选文本，返回按概率降序排列的 `list[Similarity]`；每项包含 `text`、Softmax `score`、`rank` 和 `as_dict()`：
+
+```python
+from edgeforge_sdk import CLIP
+
+with CLIP("model") as model:
+    matches = model.predict(
+        "dog_224x224.jpg",
+        texts=["a photo of a dog", "a photo of a cat"],
+    )
+    print([item.as_dict() for item in matches])
+```
+
+分步调用使用 `component="image"` 或 `component="text"`。文本输入必须由随包 tokenizer 编码并补齐为 20 token；一般业务应使用 `predict()`，由 SDK 完成 tokenizer、两个编码器、特征归一化、相似度缩放和 Softmax。
+
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
 
 ```python
