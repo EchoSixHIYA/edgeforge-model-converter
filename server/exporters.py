@@ -12,6 +12,7 @@ class ArchitectureExporters:
         "yolov6": "yolov6",
         "yolov7": "yolov7",
         "yolox": "yolox",
+        "ppyoloe": "ppyoloe",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -26,11 +27,13 @@ class ArchitectureExporters:
             return False
         if architecture in {"mobilenet", "resnet", "yolox", "retinaface"}:
             return suffix.lower() == ".pth"
+        if architecture == "ppyoloe":
+            return suffix.lower() == ".pdparams"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
         if not self.supports(architecture, source.suffix, vendor):
-            raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传官方友好 ONNX")
+            raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传模型目录声明的原始权重格式")
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
             model_name = "mobilenet_v2" if architecture == "mobilenet" else "resnet50"
@@ -50,6 +53,25 @@ class ArchitectureExporters:
                 "--output", str(output), "--metadata", str(work / "export_metadata.json"),
                 "--imgsz", "320",
             ], repo)
+            return output
+        if architecture == "ppyoloe":
+            repo = self.repos / "ppyoloe"
+            output = work / "model.onnx"
+            paddle_python = Path(os.environ.get(
+                "EDGEFORGE_PPYOLOE_PYTHON",
+                str(Path(sys.prefix).parent / ".edgeforge-ppyoloe-export-venv" /
+                    "bin" / "python")))
+            if not paddle_python.is_file():
+                raise RuntimeError(
+                    f"缺少 PP-YOLOE 独立导出环境: {paddle_python}；请重新运行 scripts/setup_wsl.sh")
+            self._run([
+                str(paddle_python), str(self.root / "server" / "ppyoloe_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(output), "--metadata", str(work / "export_metadata.json"),
+                "--labels", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
+                                "ppyoloe" / "model" / "coco_80_labels_list.txt"),
+            ], repo)
+            self._fix_static_batch(output)
             return output
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"
@@ -128,6 +150,18 @@ class ArchitectureExporters:
         output = work / "model.onnx"
         shutil.copy2(candidates[0], output)
         return output
+
+    @staticmethod
+    def _fix_static_batch(model_path):
+        import onnx
+
+        model = onnx.load(str(model_path))
+        for value in list(model.graph.input) + list(model.graph.output):
+            dimensions = value.type.tensor_type.shape.dim
+            if dimensions:
+                dimensions[0].ClearField("dim_param")
+                dimensions[0].dim_value = 1
+        onnx.save(model, str(model_path))
 
     @staticmethod
     def _run(cmd, cwd):

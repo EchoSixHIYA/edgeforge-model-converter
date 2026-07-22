@@ -282,7 +282,7 @@ class _ModelBase:
         if task_type != "object_detection":
             raise NotImplementedError(
                 f"{task_type} 必须使用自己的结构化结果和后处理器，不能套用 Detection")
-        supported = {"yolov5", "yolov6", "yolov7", "yolov8", "yolov10", "yolo11", "yolox"}
+        supported = {"yolov5", "yolov6", "yolov7", "yolov8", "yolov10", "yolo11", "yolox", "ppyoloe"}
         if architecture not in supported:
             raise NotImplementedError(
                 f"{architecture} 暂只提供 infer_raw()；该任务类型的结构化后处理器尚未注册")
@@ -902,3 +902,7 @@ class ResNet50(_ModelBase):
 
 class RetinaFace(_ModelBase):
     architecture = "retinaface"
+
+
+class PPYoloE(_ModelBase):
+    architecture = "ppyoloe"

@@ -33,6 +33,36 @@ for exporter in "${!exporter_repos[@]}"; do
   fi
 done
 
+PPYOLOE_REPO="vendor/exporters/ppyoloe"
+if [[ ! -d "$PPYOLOE_REPO/.git" ]]; then
+  git clone --branch release/2.5 --single-branch --depth 1 --filter=blob:none --no-checkout \
+    https://github.com/PaddlePaddle/PaddleDetection.git "$PPYOLOE_REPO"
+  git -C "$PPYOLOE_REPO" sparse-checkout init --cone
+  git -C "$PPYOLOE_REPO" sparse-checkout set configs/ppyoloe configs/datasets ppdet tools
+  git -C "$PPYOLOE_REPO" checkout release/2.5
+fi
+if ! grep -q 'rknn_optimize=False' "$PPYOLOE_REPO/ppdet/engine/trainer.py"; then
+  git -C "$PPYOLOE_REPO" apply \
+    ../../rknn_model_zoo/examples/ppyoloe/patch_for_model_export/ppyoloe_rknn_optimize.patch
+fi
+
+if ! ldconfig -p 2>/dev/null | grep -q 'libgomp.so.1'; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgomp1
+  else
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libgomp1
+  fi
+fi
+PPYOLOE_VENV="/home/$(id -un)/.edgeforge-ppyoloe-export-venv"
+python3 -m venv "$PPYOLOE_VENV"
+"$PPYOLOE_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+"$PPYOLOE_VENV/bin/python" -m pip install numpy==1.24.4 \
+  paddlepaddle==2.5.2 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+"$PPYOLOE_VENV/bin/python" -m pip install paddle2onnx==1.0.9 tqdm typeguard==2.13.3 \
+  visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools
+
 shopt -s nullglob
 rknn_wheels=(wheels/rknn_toolkit2*.whl wheels/rknn-toolkit2*.whl)
 if ((${#rknn_wheels[@]})); then

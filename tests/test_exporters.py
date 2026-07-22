@@ -48,6 +48,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolox", ".pth", "rockchip")
     assert exporter.supports("retinaface", ".pth", "rockchip")
     assert not exporter.supports("retinaface", ".onnx", "rockchip")
+    assert exporter.supports("ppyoloe", ".pdparams", "rockchip")
+    assert not exporter.supports("ppyoloe", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -65,6 +67,27 @@ def test_retinaface_decodes_box_and_five_landmarks():
     assert boxes.shape == (1, 4)
     assert scores.tolist() == pytest.approx([.99])
     assert points.shape == (1, 5, 2)
+
+
+def test_ppyoloe_decodes_its_nine_output_contract():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_dfl
+
+    outputs = []
+    for branch, size in enumerate((20, 40, 80)):
+        position = np.zeros((1, 68, size, size), dtype=np.float32)
+        probabilities = np.zeros((1, 80, size, size), dtype=np.float32)
+        if branch == 0:
+            probabilities[0, 5, 0, 0] = .9
+        score_sum = probabilities.sum(axis=1, keepdims=True).clip(0, 1)
+        outputs.extend((position, probabilities, score_sum))
+
+    boxes, classes, scores = _postprocess_dfl(
+        outputs, (640, 640), 80, .25, .45, nms=True)
+
+    assert boxes.shape == (1, 4)
+    assert classes.tolist() == [5]
+    assert scores.tolist() == pytest.approx([.9])
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

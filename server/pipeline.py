@@ -22,6 +22,7 @@ SDK_CLASSES = {
     "yolox": "YoloX",
     "yolo11": "Yolo11", "mobilenet": "MobileNetV2", "resnet": "ResNet50",
     "retinaface": "RetinaFace",
+    "ppyoloe": "PPYoloE",
 }
 
 
