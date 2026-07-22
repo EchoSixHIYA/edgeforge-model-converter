@@ -26,7 +26,7 @@ class RknnBackend(ConversionBackend):
             # Image normalization is fused into RKNN.  Audio waveforms are
             # already normalized float32 tensors; passing a single mean for a
             # [1, samples] input makes Toolkit2 treat every sample as a channel.
-            if cfg.get("modality", "image") == "image":
+            if cfg.get("modality", "image") == "image" and options.get("fuse_normalization", True):
                 config_options.update(
                     mean_values=[cfg.get("mean", [0, 0, 0])],
                     std_values=[cfg.get("std", [255, 255, 255])],
@@ -35,7 +35,9 @@ class RknnBackend(ConversionBackend):
             if ret not in (None, 0):
                 raise RuntimeError(f"rknn.config 失败，返回值 {ret}")
             progress(56, "加载 ONNX 图")
-            ret = rknn.load_onnx(model=str(source))
+            load_options = {"model": str(source)}
+            load_options.update(options.get("load_onnx", {}))
+            ret = rknn.load_onnx(**load_options)
             if ret != 0:
                 raise RuntimeError(f"rknn.load_onnx 失败，返回值 {ret}")
             quant = options["precision"] in ("i8", "u8")

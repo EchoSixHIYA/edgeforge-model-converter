@@ -17,6 +17,7 @@ class ArchitectureExporters:
         "lprnet": "lprnet",
         "deeplabv3": "deeplabv3",
         "yamnet": "yamnet",
+        "mobilesam": "mobilesam",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -39,6 +40,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".zip"
         if architecture == "deeplabv3":
             return suffix.lower() == ".pb"
+        if architecture == "mobilesam":
+            return suffix.lower() == ".pt"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
@@ -143,6 +146,18 @@ class ArchitectureExporters:
             ], repo)
             self._fix_static_batch(output)
             return output
+        if architecture == "mobilesam":
+            repo = self.repos / "mobilesam"
+            encoder = work / "encoder.onnx"
+            decoder = work / "decoder.onnx"
+            progress(24, "调用 MobileSAM 官方模型定义导出 448px 编码器和双提示解码器")
+            self._run([
+                sys.executable, str(self.root / "server" / "mobilesam_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--encoder", str(encoder), "--decoder", str(decoder),
+                "--metadata", str(work / "export_metadata.json"),
+            ], repo)
+            return {"encoder": encoder, "decoder": decoder}
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"
         progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")

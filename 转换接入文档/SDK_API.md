@@ -136,6 +136,23 @@ with DeepLabV3Plus("model") as model:
     model.draw("test_image.jpg", segmentation, "result.png")
 ```
 
+MobileSAM 是双 RKNN 模型包，`load()` 会同时初始化 `encoder.rknn` 与 `decoder.rknn`。`predict()` 必须显式传入两个提示；标签 `0/1` 表示背景/前景点，`2/3` 表示框的左上角/右下角。返回单个 `InteractiveMask`，其中 `mask` 已恢复到原图尺寸，另含 `score`、`point_coords` 与 `point_labels`：
+
+```python
+from edgeforge_sdk import MobileSAM
+
+with MobileSAM("model") as model:
+    result = model.predict(
+        "picture.jpg",
+        point_coords=[(190, 70), (460, 280)],
+        point_labels=[2, 3],
+    )
+    print(result.as_dict())
+    model.draw("picture.jpg", result, "result.jpg")
+```
+
+需要自行调度时，MobileSAM 的裸推理入口必须指明组件：`infer_raw(image, component="encoder")` 或 `infer_raw(decoder_inputs, component="decoder")`。解码器输入顺序固定为 `image_embeddings, point_coords, point_labels, mask_input, has_mask_input`；`postprocess()` 接收解码器的 `iou_predictions, low_res_masks` 以及同一次 `preprocess()` 的上下文。一般业务应优先使用 `predict()`，以免坐标缩放或模型间张量顺序出错。
+
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
 
 ```python

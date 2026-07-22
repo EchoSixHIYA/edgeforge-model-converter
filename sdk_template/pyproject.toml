@@ -13,4 +13,4 @@ dependencies = ["numpy>=1.21", "opencv-python>=4.5"]
 packages = ["edgeforge_sdk"]
 
 [tool.setuptools.package-data]
-edgeforge_sdk = ["config.json", "model.rknn"]
+edgeforge_sdk = ["config.json", "*.rknn"]

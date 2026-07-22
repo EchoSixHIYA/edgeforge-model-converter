@@ -134,6 +134,21 @@ class SegmentationMask:
         }
 
 
+@dataclass(frozen=True)
+class InteractiveMask:
+    mask: np.ndarray
+    score: float
+    point_coords: tuple
+    point_labels: tuple
+
+    def as_dict(self):
+        return {
+            "mask_shape": list(self.mask.shape), "mask_area": int(np.count_nonzero(self.mask)),
+            "score": self.score, "point_coords": [list(point) for point in self.point_coords],
+            "point_labels": list(self.point_labels),
+        }
+
+
 class _ModelBase:
     """Stable inference API for an EdgeForge-generated RKNN model."""
 
@@ -488,9 +503,7 @@ def _resolve_model_assets(model_path, config_path, packaged):
             models = sorted(requested.glob("*.rknn"))
             if not models:
                 raise ValueError(f"model directory contains no .rknn file: {requested}")
-            if len(models) > 1:
-                raise ValueError(f"model directory contains multiple .rknn files: {requested}")
-            model = models[0]
+            model = models[0] if len(models) == 1 else requested
             config = Path(config_path) if config_path else requested / "config.json"
         else:
             model = requested
@@ -1127,3 +1140,150 @@ class PPLiteSeg(_ModelBase):
 
 class DeepLabV3Plus(_ModelBase):
     architecture = "deeplabv3"
+
+
+class MobileSAM(_ModelBase):
+    """MobileSAM image encoder plus prompt decoder.
+
+    ``point_labels`` follows SAM: 1=foreground point, 0=background point,
+    and a box is represented by labels 2 (top-left) and 3 (bottom-right).
+    """
+
+    architecture = "mobilesam"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.engines = {}
+
+    def _component_paths(self):
+        files = self.config.get("model_files")
+        if set(files or {}) != {"encoder", "decoder"}:
+            raise ValueError("MobileSAM config must declare encoder and decoder model_files")
+        base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+        paths = {name: base / filename for name, filename in files.items()}
+        missing = [str(path) for path in paths.values() if not path.is_file()]
+        if missing:
+            raise ValueError(f"MobileSAM model components not found: {missing}")
+        return paths
+
+    def load(self):
+        if self.engines:
+            return self
+        for name, path in self._component_paths().items():
+            try:
+                from rknnlite.api import RKNNLite
+                engine, lite = RKNNLite(), True
+            except ImportError:
+                from rknn.api import RKNN
+                engine, lite = RKNN(), False
+            ret = engine.load_rknn(str(path))
+            if ret != 0:
+                self.close()
+                raise RuntimeError(f"load_rknn failed for MobileSAM {name}: {ret}")
+            if lite:
+                runtime = {"core_mask": self.core_mask} if self.core_mask is not None else {}
+            else:
+                if not self.target:
+                    engine.release(); self.close()
+                    raise RuntimeError("Toolkit2 runtime requires target and a connected Rockchip device")
+                runtime = {"target": self.target}
+                if self.device_id:
+                    runtime["device_id"] = self.device_id
+            ret = engine.init_runtime(**runtime)
+            if ret != 0:
+                engine.release(); self.close()
+                raise RuntimeError(f"init_runtime failed for MobileSAM {name}: {ret}")
+            self.engines[name] = engine
+        return self
+
+    def close(self):
+        for engine in self.engines.values():
+            engine.release()
+        self.engines.clear()
+
+    def infer_raw(self, inputs, *, component):
+        """Run one raw component; ``component`` is ``encoder`` or ``decoder``."""
+        if component not in {"encoder", "decoder"}:
+            raise ValueError("MobileSAM component must be 'encoder' or 'decoder'")
+        self.load()
+        values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        kwargs = {"inputs": values}
+        if component == "decoder":
+            kwargs["data_format"] = "nchw"
+        outputs = self.engines[component].inference(**kwargs)
+        if outputs is None:
+            raise RuntimeError(f"MobileSAM {component} inference returned no outputs")
+        return outputs
+
+    def preprocess(self, source):
+        original = _read_image(source)
+        rgb = cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
+        target = int(self.config["input_size"][0])
+        height, width = rgb.shape[:2]
+        scale = target / max(height, width)
+        resized_width, resized_height = int(width * scale + .5), int(height * scale + .5)
+        resized = cv2.resize(rgb, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+        tensor = np.zeros((target, target, 3), dtype=np.uint8)
+        tensor[:resized_height, :resized_width] = resized
+        return np.expand_dims(tensor, 0), {
+            "original_shape": (height, width), "input_shape": (resized_height, resized_width),
+            "coordinate_scale": (resized_width / width, resized_height / height),
+        }
+
+    def predict(self, source, *, point_coords, point_labels, mask_input=None, has_mask_input=0.0):
+        tensor, context = self.preprocess(source)
+        coords = np.asarray(point_coords, dtype=np.float32).reshape(1, -1, 2)
+        labels = np.asarray(point_labels, dtype=np.float32).reshape(1, -1)
+        expected = int(self.config.get("prompt_count", 2))
+        if coords.shape[1] != expected or labels.shape[1] != expected:
+            raise ValueError(f"MobileSAM requires exactly {expected} prompt entries")
+        original_coords = coords.copy()
+        coords[..., 0] *= context["coordinate_scale"][0]
+        coords[..., 1] *= context["coordinate_scale"][1]
+        embeddings = self.infer_raw(tensor, component="encoder")[0]
+        if mask_input is None:
+            mask_input = np.zeros((1, 1, 112, 112), dtype=np.float32)
+        decoder_inputs = [
+            np.asarray(embeddings, dtype=np.float32), coords, labels,
+            np.asarray(mask_input, dtype=np.float32),
+            np.asarray([has_mask_input], dtype=np.float32),
+        ]
+        outputs = self.infer_raw(decoder_inputs, component="decoder")
+        context.update({"point_coords": original_coords[0], "point_labels": labels[0]})
+        return self.postprocess(outputs, context)
+
+    def postprocess(self, outputs, context, **_):
+        if len(outputs) != 2:
+            raise ValueError(f"MobileSAM decoder expected 2 outputs, got {len(outputs)}")
+        scores = np.asarray(outputs[0], dtype=np.float32).reshape(-1)
+        masks = np.asarray(outputs[1], dtype=np.float32)
+        if masks.ndim != 4 or masks.shape[0] != 1 or masks.shape[1] != scores.size:
+            raise ValueError(f"unexpected MobileSAM output shapes: {scores.shape}, {masks.shape}")
+        target = int(self.config["input_size"][0])
+        resized_height, resized_width = context["input_shape"]
+        height, width = context["original_shape"]
+        index = int(scores.argmax())
+        mask = cv2.resize(masks[0, index], (target, target), interpolation=cv2.INTER_LINEAR)
+        mask = mask[:resized_height, :resized_width]
+        mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_LINEAR) > 0
+        return InteractiveMask(
+            mask, float(scores[index]),
+            tuple(tuple(float(value) for value in point) for point in context["point_coords"]),
+            tuple(int(value) for value in context["point_labels"]),
+        )
+
+    def draw(self, image, result, output=None):
+        canvas = _read_image(image).copy()
+        overlay = np.zeros_like(canvas)
+        overlay[result.mask] = (30, 144, 255)
+        canvas = cv2.addWeighted(canvas, 1.0, overlay, .5, 0)
+        for (x, y), label in zip(result.point_coords, result.point_labels):
+            if label in (0, 1):
+                color = (0, 255, 0) if label == 1 else (0, 0, 255)
+                cv2.circle(canvas, (int(x), int(y)), 5, color, -1)
+        box_points = [point for point, label in zip(result.point_coords, result.point_labels) if label in (2, 3)]
+        if len(box_points) == 2:
+            cv2.rectangle(canvas, tuple(map(int, box_points[0])), tuple(map(int, box_points[1])), (0, 255, 0), 2)
+        if output:
+            cv2.imwrite(str(output), canvas)
+        return canvas

@@ -58,6 +58,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("ppseg", ".onnx", "rockchip")
     assert exporter.supports("deeplabv3", ".pb", "rockchip")
     assert not exporter.supports("deeplabv3", ".onnx", "rockchip")
+    assert exporter.supports("mobilesam", ".pt", "rockchip")
+    assert not exporter.supports("mobilesam", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -150,6 +152,34 @@ def test_ppseg_returns_original_size_semantic_mask():
     assert result.mask.shape == (8, 10)
     assert result.class_ids == (1, 2)
     assert result.as_dict()["classes"][0]["label"] == "person"
+
+
+def test_mobilesam_restores_best_prompt_mask_to_original_image(tmp_path):
+    import json
+    import numpy as np
+    from sdk_template.edgeforge_sdk import InteractiveMask, MobileSAM
+
+    (tmp_path / "encoder.rknn").write_bytes(b"encoder")
+    (tmp_path / "decoder.rknn").write_bytes(b"decoder")
+    (tmp_path / "config.json").write_text(json.dumps({
+        "architecture": "mobilesam", "modality": "image+prompt",
+        "task_type": "interactive_segmentation", "input_size": [448, 448],
+        "model_files": {"encoder": "encoder.rknn", "decoder": "decoder.rknn"},
+    }), encoding="utf-8")
+    model = MobileSAM(tmp_path)
+    tensor, context = model.preprocess(np.zeros((300, 600, 3), dtype=np.uint8))
+    assert tensor.shape == (1, 448, 448, 3)
+    assert context["input_shape"] == (224, 448)
+    context.update({"point_coords": np.asarray([[10, 20], [100, 200]]),
+                    "point_labels": np.asarray([2, 3])})
+    scores = np.asarray([[.1, .9, .2, .3]], dtype=np.float32)
+    masks = np.zeros((1, 4, 112, 112), dtype=np.float32)
+    masks[0, 1, 10:80, 10:80] = 1.0
+    result = model.postprocess([scores, masks], context)
+    assert isinstance(result, InteractiveMask)
+    assert result.mask.shape == (300, 600)
+    assert result.mask.any()
+    assert result.score == pytest.approx(.9)
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

@@ -26,12 +26,14 @@ declare -A exporter_repos=(
   [yolov8]="https://github.com/airockchip/ultralytics_yolov8.git"
   [yolo11]="https://github.com/airockchip/ultralytics_yolo11.git"
   [retinaface]="https://github.com/biubug6/Pytorch_Retinaface.git"
+  [mobilesam]="https://github.com/airockchip/MobileSAM.git"
 )
 for exporter in "${!exporter_repos[@]}"; do
   if [[ ! -d "vendor/exporters/$exporter/.git" ]]; then
     git clone --depth 1 "${exporter_repos[$exporter]}" "vendor/exporters/$exporter"
   fi
 done
+python -m pip install timm==1.0.19
 
 PPSEG_REPO="vendor/exporters/ppseg"
 if [[ ! -d "$PPSEG_REPO/.git" ]]; then

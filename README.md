@@ -12,7 +12,7 @@
 - 用户入口禁止上传 ONNX；上传训练得到的原始权重后，服务必须先调用所选架构的专用仓库 exporter 生成友好 ONNX，再编译 RKNN。
 - INT8/UINT8 支持上传校准图片 ZIP；FP 模式无需校准集。
 - Server-Sent Events 实时显示进度；任务和日志持久化；转换任务串行排队。
-- 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的演示输入（图像为 `test.jpg`，音频为 `test.wav`）；调用方必须显式选择 `YoloV8`、`PPYoloE`、`YAMNet` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
+- 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的演示输入（图像为 `test.jpg`，音频为 `test.wav`）；调用方必须显式选择 `YoloV8`、`PPYoloE`、`YAMNet`、`MobileSAM` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。MobileSAM 这类组合模型在一个 `model/` 中携带多个 RKNN，仍只需安装同一个 SDK。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
 - 后端通过 `ConversionBackend` 注册；以后新增 Sophon `.bmodel` 无需改网页任务协议。
 
 ## 在 WSL2 安装

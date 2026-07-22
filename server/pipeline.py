@@ -27,6 +27,7 @@ SDK_CLASSES = {
     "yamnet": "YAMNet",
     "ppseg": "PPLiteSeg",
     "deeplabv3": "DeepLabV3Plus",
+    "mobilesam": "MobileSAM",
 }
 
 
@@ -56,19 +57,34 @@ class Pipeline:
             raise ValueError(f"{cfg['name']} 不支持目标平台 {task['platform']}")
 
         dataset = self._prepare_calibration(task.get("calibration_path"), work, update)
-        onnx_path = self._to_onnx(source, work, task, update)
-        self._check_onnx(onnx_path, update)
+        onnx_artifacts = self._to_onnx(source, work, task, update)
+        onnx_models = onnx_artifacts if isinstance(onnx_artifacts, dict) else {"model": onnx_artifacts}
+        for path in onnx_models.values():
+            self._check_onnx(path, update)
 
         backend = self.backends.get(task["backend"])
-        output = work / f"model{backend.output_suffix}"
-        backend.convert(onnx_path, output, {
-            "platform": task["platform"], "precision": task["precision"],
-            "dataset": str(dataset) if dataset else None, "catalog": cfg,
-        }, update)
+        outputs = {}
+        for component, onnx_path in onnx_models.items():
+            output = work / f"{component}{backend.output_suffix}"
+            options = {
+                "platform": task["platform"], "precision": task["precision"],
+                "dataset": str(dataset) if dataset else None, "catalog": cfg,
+            }
+            if cfg["id"] == "mobilesam" and component == "decoder":
+                options["fuse_normalization"] = False
+            backend.convert(onnx_path, output, options, update)
+            outputs[component] = output
         update(91, "组装对应架构的部署 SDK")
-        package = self._package_sdk(task, cfg, onnx_path, output, work)
+        package = self._package_sdk(task, cfg, onnx_models, outputs, work)
+        if len(outputs) == 1:
+            model_artifact = next(iter(outputs.values()))
+        else:
+            model_artifact = work / f"{cfg['id']}_models.zip"
+            with zipfile.ZipFile(model_artifact, "w", zipfile.ZIP_DEFLATED) as archive:
+                for component, path in outputs.items():
+                    archive.write(path, f"{component}{backend.output_suffix}")
         update(100, "转换完成，SDK 已打包")
-        return {"model": str(output), "package": str(package)}
+        return {"model": str(model_artifact), "package": str(package)}
 
     def _prepare_calibration(self, archive, work, update):
         if not archive:
@@ -111,7 +127,7 @@ class Pipeline:
         except Exception as exc:
             raise ValueError(f"ONNX 结构校验失败: {exc}") from exc
 
-    def _package_sdk(self, task, cfg, onnx_path, output, work):
+    def _package_sdk(self, task, cfg, onnx_models, outputs, work):
         stage = work / "sdk"
         stage.mkdir(exist_ok=True)
         shutil.copytree(self.root / "sdk_template", stage, dirs_exist_ok=True)
@@ -134,11 +150,16 @@ class Pipeline:
                 shutil.copytree(py_utils, reference / "py_utils", dirs_exist_ok=True)
         model_dir = stage / "model"
         model_dir.mkdir(exist_ok=True)
-        shutil.copy2(output, model_dir / output.name)
-        shutil.copy2(onnx_path, model_dir / onnx_path.name)
-        shutil.copy2(output, stage / "edgeforge_sdk" / "model.rknn")
+        for component, output in outputs.items():
+            shutil.copy2(output, model_dir / output.name)
+            embedded_name = "model.rknn" if len(outputs) == 1 else output.name
+            shutil.copy2(output, stage / "edgeforge_sdk" / embedded_name)
+        for onnx_path in onnx_models.values():
+            shutil.copy2(onnx_path, model_dir / onnx_path.name)
         export_metadata = self._extract_export_metadata(work)
-        labels = export_metadata.get("labels") or self._extract_labels(onnx_path, example)
+        primary_onnx = next(iter(onnx_models.values()))
+        labels = ([] if cfg["id"] == "mobilesam" else
+                  export_metadata.get("labels") or self._extract_labels(primary_onnx, example))
         runtime_config = {
             "architecture": cfg["id"], "architecture_name": cfg["name"],
             "modality": cfg["modality"], "task_type": cfg["task_type"],
@@ -152,9 +173,12 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout"):
+        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
+        if len(outputs) > 1:
+            runtime_config["model_files"] = {name: path.name for name, path in outputs.items()}
+            runtime_config["intermediate_files"] = {name: path.name for name, path in onnx_models.items()}
         config_text = json.dumps(runtime_config, ensure_ascii=False, indent=2)
         (stage / "edgeforge_sdk" / "config.json").write_text(config_text, encoding="utf-8")
         # This directory is the portable model bundle consumed by the one-time
@@ -163,31 +187,44 @@ class Pipeline:
         sdk_class = SDK_CLASSES.get(cfg["id"])
         if not sdk_class:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
-        if cfg["id"] == "ppseg":
+        if cfg["id"] == "mobilesam":
+            demo_name = "picture.jpg"
+        elif cfg["id"] == "ppseg":
             demo_name = "test.png"
         elif cfg["id"] == "deeplabv3":
             demo_name = "test_image.jpg"
         else:
             demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3"}:
+        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam"}:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)
-        example_text = (
-            f"from edgeforge_sdk import {sdk_class}\n\n"
-            f"with {sdk_class}(\"model\") as model:\n"
-            f"    results = model.predict(\"{demo_name}\")\n"
-            "    for item in results:\n"
-            "        print(item.as_dict())\n")
-        if cfg["modality"] == "image":
-            example_text += f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n"
+        if cfg["id"] == "mobilesam":
+            example_text = (
+                f"from edgeforge_sdk import {sdk_class}\n\n"
+                f"with {sdk_class}(\"model\") as model:\n"
+                f"    result = model.predict(\"{demo_name}\", point_coords=[(190, 70), (460, 280)], point_labels=[2, 3])\n"
+                "    print(result.as_dict())\n"
+                f"    model.draw(\"{demo_name}\", result, \"result.jpg\")\n")
+        else:
+            example_text = (
+                f"from edgeforge_sdk import {sdk_class}\n\n"
+                f"with {sdk_class}(\"model\") as model:\n"
+                f"    results = model.predict(\"{demo_name}\")\n"
+                "    for item in results:\n"
+                "        print(item.as_dict())\n")
+            if cfg["modality"] == "image":
+                example_text += f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n"
         (stage / "example.py").write_text(example_text, encoding="utf-8")
         manifest = {
             "created_at": utc_now(), "architecture": cfg["id"], "architecture_name": cfg["name"],
             "vendor": task["vendor"], "backend": task["backend"], "platform": task["platform"], "precision": task["precision"],
             "modality": cfg["modality"], "task_type": cfg["task_type"], "result_type": cfg["result_type"],
             "input_size": cfg["input_size"], "official_example": cfg["example"],
-            "model": f"model/{output.name}", "intermediate_model": f"model/{onnx_path.name}",
+            "model": ({name: f"model/{path.name}" for name, path in outputs.items()}
+                      if len(outputs) > 1 else f"model/{next(iter(outputs.values())).name}"),
+            "intermediate_model": ({name: f"model/{path.name}" for name, path in onnx_models.items()}
+                                   if len(onnx_models) > 1 else f"model/{primary_onnx.name}"),
         }
         (stage / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         (stage / "使用说明.txt").write_text(

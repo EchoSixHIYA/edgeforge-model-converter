@@ -62,7 +62,8 @@
 | YAMNet | 完成，接受原始 TensorFlow SavedModel ZIP | 完成，显式 `YAMNet`、WAV 重采样与 `AudioClassification` | RK3588 FP；官方音频 Top-1 `Animal` 通过 | 开放 |
 | PP-LiteSeg | 完成，接受 STDC1/STDC2 Cityscapes `.pdparams` | 完成，显式 `PPLiteSeg` 与原图尺寸 `SegmentationMask` | RK3588 FP；官方 `test.png` 与参考 ONNX 掩码逐像素一致 | 开放 |
 | DeepLabV3+ | 完成，接受 Zoo 上游 TensorFlow 冻结图 `.pb` | 完成，显式 `DeepLabV3Plus`、logits 双线性恢复与 Pascal VOC 掩码 | RK3588 FP；官方参考叠加图 MAE `0.095` | 开放 |
-| 其余 9 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
+| MobileSAM | 完成，接受官方 `mobile_sam.pt`，固定导出 448px encoder 与双提示 decoder | 完成，显式 `MobileSAM`、双 RKNN 调度、点/框提示和 `InteractiveMask` | RK3588 FP；官方 `picture.jpg` 与结果图掩码 IoU `0.934` | 开放 |
+| 其余 8 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
 
 ## YOLOv8 当前执行清单
 

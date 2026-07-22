@@ -1,6 +1,6 @@
 # EdgeForge 通用模型 SDK
 
-`edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个 `.rknn` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
+`edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个或一组 `.rknn` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
 
 ```python
 from edgeforge_sdk import YoloV10
@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -91,6 +91,21 @@ with DeepLabV3Plus("model") as model:
     model.draw("test_image.jpg", segmentation, "result.png")
 ```
 
+MobileSAM 的一个模型目录包含 `encoder.rknn` 与 `decoder.rknn`，但仍使用同一个 SDK。它要求两个点提示；框用标签 `2/3` 表示左上角和右下角，返回原图尺寸的 `InteractiveMask`：
+
+```python
+from edgeforge_sdk import MobileSAM
+
+with MobileSAM("model") as model:
+    result = model.predict(
+        "picture.jpg",
+        point_coords=[(190, 70), (460, 280)],
+        point_labels=[2, 3],
+    )
+    print(result.as_dict())
+    model.draw("picture.jpg", result, "result.jpg")
+```
+
 ## `infer_raw()`
 
 `infer_raw(inputs) -> list[numpy.ndarray]` 只运行 NPU，不进行预处理和后处理。单输入可直接传数组；多输入须按模型节点顺序传列表。返回数组的数量、顺序、布局和数据类型与编译模型一致，可能是 NCHW/NHWC 或量化整数。
@@ -101,6 +116,8 @@ outputs = model.infer_raw(tensor)
 ```
 
 直接构造输入时，调用方负责颜色、尺寸、dtype 和量化约定。
+
+MobileSAM 分步调用时还须选择组件：`infer_raw(image, component="encoder")` 或 `infer_raw(decoder_inputs, component="decoder")`。一般业务使用 `predict()`，由 SDK 完成编码器到解码器的张量传递与提示坐标缩放。
 
 ## `postprocess()`
 

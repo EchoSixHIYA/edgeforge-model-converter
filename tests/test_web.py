@@ -79,7 +79,8 @@ def test_generated_sdk_contains_runnable_example_assets(tmp_path):
     }), encoding="utf-8")
     task = {"platform": "rk3588", "precision": "fp", "vendor": "rockchip", "backend": "rknn"}
 
-    archive = pipeline._package_sdk(task, BY_ID["yolov5"], onnx_path, rknn_path, tmp_path)
+    archive = pipeline._package_sdk(
+        task, BY_ID["yolov5"], {"model": onnx_path}, {"model": rknn_path}, tmp_path)
     with zipfile.ZipFile(archive) as package:
         names = set(package.namelist())
         assert not any("__pycache__" in name or name.endswith(".pyc") for name in names)
