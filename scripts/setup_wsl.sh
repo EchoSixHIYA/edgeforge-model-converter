@@ -63,6 +63,15 @@ python3 -m venv "$PPYOLOE_VENV"
 "$PPYOLOE_VENV/bin/python" -m pip install paddle2onnx==1.0.9 tqdm typeguard==2.13.3 \
   visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools
 
+# YAMNet accepts an original TensorFlow SavedModel ZIP.  Keep its pinned
+# conversion stack isolated from the site's RKNN/PyTorch environment.
+YAMNET_VENV="/home/$(id -un)/.edgeforge-yamnet-export-venv"
+python3 -m venv "$YAMNET_VENV"
+"$YAMNET_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+"$YAMNET_VENV/bin/python" -m pip install \
+  numpy==1.24.3 onnx==1.16.0 onnxruntime==1.17.3 \
+  tensorflow==2.13.1 tensorflow_hub==0.16.1 tf2onnx==1.16.1
+
 shopt -s nullglob
 rknn_wheels=(wheels/rknn_toolkit2*.whl wheels/rknn-toolkit2*.whl)
 if ((${#rknn_wheels[@]})); then

@@ -142,8 +142,10 @@ CATALOG = [
           blocker="编码器/解码器多模型、mel 特征与 tokenizer 尚未接入"),
     _item("zipformer", "Zipformer", "语音识别", platforms=_RK2, precisions=("fp",),
           blocker="encoder/decoder/joiner 多模型与流式解码尚未接入"),
-    _item("yamnet", "YAMNet", "声音分类", platforms=_RK2, precisions=("fp",),
-          blocker="音频原始权重导出、波形预处理与标签后处理尚未接入"),
+    _item("yamnet", "YAMNet", "声音分类", source="savedmodel_zip", platforms=_STANDARD,
+          input_size=[48000], mean=(0,), std=(1,), precisions=("fp",),
+          weight_formats=(".zip",), exporter_ready=True, postprocess_ready=True,
+          verified=True, notes="接受包含 saved_model.pb/variables 的 TensorFlow SavedModel ZIP；显式 YAMNet 处理 3 秒 16 kHz 波形；RK3588 FP 与官方 test.wav Top-1 Animal 已通过。"),
     _item("mms_tts", "MMS TTS", "语音合成", platforms=_RK2, precisions=("fp",),
           blocker="编码器/解码器多模型、tokenizer 与波形生成尚未接入"),
 ]
@@ -175,7 +177,7 @@ _TASK_CONTRACTS = {
     "wav2vec2": ("audio", "speech_recognition", "Transcription"),
     "whisper": ("audio", "speech_recognition", "Transcription"),
     "zipformer": ("audio", "streaming_speech_recognition", "Transcription"),
-    "yamnet": ("audio", "audio_classification", "Classification"),
+    "yamnet": ("audio", "audio_classification", "AudioClassification"),
     "mms_tts": ("text", "text_to_speech", "AudioWaveform"),
 }
 

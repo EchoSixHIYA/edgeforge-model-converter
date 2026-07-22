@@ -52,6 +52,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("ppyoloe", ".onnx", "rockchip")
     assert exporter.supports("lprnet", ".pth", "rockchip")
     assert not exporter.supports("lprnet", ".onnx", "rockchip")
+    assert exporter.supports("yamnet", ".zip", "rockchip")
+    assert not exporter.supports("yamnet", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -107,6 +109,28 @@ def test_lprnet_collapses_repeats_and_blank_tokens():
     assert results[0].text == "京A1"
     assert results[0].token_ids == (0, 41, 32)
     assert results[0].score > .99
+
+
+def test_yamnet_resamples_audio_and_averages_frame_scores():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_yamnet, _preprocess_audio
+
+    waveform = np.linspace(-1, 1, 8000, dtype=np.float32)
+    tensor, context = _preprocess_audio((waveform, 8000), 16000, 48000)
+    assert tensor.shape == (1, 48000)
+    assert tensor.dtype == np.float32
+    assert context["source_sample_rate"] == 8000
+    assert tensor[0, 15999] == pytest.approx(1.0, abs=2e-4)
+    assert np.count_nonzero(tensor[0, 16000:]) == 0
+
+    labels = ["Silence", "Animal", "Music"]
+    scores = np.asarray([[[.1, .8, .1], [.2, .6, .2]]], dtype=np.float32)
+    results = _postprocess_yamnet(
+        [np.zeros((1, 2, 1024), dtype=np.float32),
+         np.zeros((1, 2, 64), dtype=np.float32), scores], labels, 2)
+    assert [item.label for item in results] == ["Animal", "Music"]
+    assert results[0].score == pytest.approx(.7)
+    assert results[0].rank == 1
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

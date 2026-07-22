@@ -24,6 +24,7 @@ SDK_CLASSES = {
     "retinaface": "RetinaFace",
     "ppyoloe": "PPYoloE",
     "lprnet": "LPRNet",
+    "yamnet": "YAMNet",
 }
 
 
@@ -147,6 +148,9 @@ class Pipeline:
         }
         if export_metadata.get("anchors"):
             runtime_config["anchors"] = export_metadata["anchors"]
+        for key in ("sample_rate", "sample_count", "chunk_seconds"):
+            if key in export_metadata:
+                runtime_config[key] = export_metadata[key]
         config_text = json.dumps(runtime_config, ensure_ascii=False, indent=2)
         (stage / "edgeforge_sdk" / "config.json").write_text(config_text, encoding="utf-8")
         # This directory is the portable model bundle consumed by the one-time
@@ -155,14 +159,20 @@ class Pipeline:
         sdk_class = SDK_CLASSES.get(cfg["id"])
         if not sdk_class:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
-        (stage / "example.py").write_text(
+        demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
+        if cfg["modality"] == "audio":
+            official_demo = example / "model" / demo_name
+            if official_demo.is_file():
+                shutil.copy2(official_demo, stage / demo_name)
+        example_text = (
             f"from edgeforge_sdk import {sdk_class}\n\n"
             f"with {sdk_class}(\"model\") as model:\n"
-            "    results = model.predict(\"test.jpg\")\n"
+            f"    results = model.predict(\"{demo_name}\")\n"
             "    for item in results:\n"
-            "        print(item.as_dict())\n"
-            "    model.draw(\"test.jpg\", results, \"result.jpg\")\n",
-            encoding="utf-8")
+            "        print(item.as_dict())\n")
+        if cfg["modality"] == "image":
+            example_text += f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n"
+        (stage / "example.py").write_text(example_text, encoding="utf-8")
         manifest = {
             "created_at": utc_now(), "architecture": cfg["id"], "architecture_name": cfg["name"],
             "vendor": task["vendor"], "backend": task["backend"], "platform": task["platform"], "precision": task["precision"],
@@ -175,9 +185,9 @@ class Pipeline:
             f"{cfg['name']} 部署 SDK\n目标: {task['platform']} / {task['precision']}\n\n"
             "edgeforge_sdk/：统一可调用 Python SDK（load/predict/infer_raw/draw）\n"
             f"显式入口：from edgeforge_sdk import {sdk_class}\n"
-            "example.py：最小调用示例（默认读取随包附带的 test.jpg）\n"
+            f"example.py：最小调用示例（默认读取随包附带的 {demo_name}）\n"
             "install.sh：板端 RKNN-Toolkit-Lite2 与 SDK 一键安装脚本\n"
-            "test.jpg：可直接运行示例的演示图片\nSDK_README.md：安装与接口文档\n"
+            f"{demo_name}：可直接运行示例的演示输入\nSDK_README.md：安装与接口文档\n"
             "reference/：用于核对的官方 Python/C++ 示例，不是主调用入口\n"
             "model/：RKNN 与内部 ONNX 产物\nmanifest.json：机器可读构建信息\n",
             encoding="utf-8")

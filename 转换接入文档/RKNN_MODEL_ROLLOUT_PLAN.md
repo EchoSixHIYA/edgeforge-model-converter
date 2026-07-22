@@ -59,7 +59,8 @@
 | RetinaFace | 完成，接受 MobileNet0.25/ResNet50 `.pth` | 完成，`FaceDetection` 人脸框与 5 点关键点 | RK3588 FP；官方 test 图通过 | 开放 |
 | PP-YOLOE | 完成，接受 CRN-S/CRN-M `.pdparams` | 完成，9 路 DFL/类别/score-sum 与显式 `PPYoloE` | S/M 均完成 RK3588 FP；官方 bus 图通过 | 开放 |
 | LPRNet | 完成，接受原始 `.pth` 状态字典 | 完成，显式 `LPRNet` 与 `TextRecognition` | RK3588 FP；官方车牌图 `湘F6CL03` 通过 | 开放 |
-| 其余 12 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
+| YAMNet | 完成，接受原始 TensorFlow SavedModel ZIP | 完成，显式 `YAMNet`、WAV 重采样与 `AudioClassification` | RK3588 FP；官方音频 Top-1 `Animal` 通过 | 开放 |
+| 其余 11 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
 
 ## YOLOv8 当前执行清单
 

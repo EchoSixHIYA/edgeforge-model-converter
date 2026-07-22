@@ -1,4 +1,5 @@
 import json
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,18 @@ class TextRecognition:
 
 @dataclass(frozen=True)
 class Classification:
+    class_id: int
+    label: str
+    score: float
+    rank: int
+
+    def as_dict(self):
+        return {"class_id": self.class_id, "label": self.label,
+                "score": self.score, "rank": self.rank}
+
+
+@dataclass(frozen=True)
+class AudioClassification:
     class_id: int
     label: str
     score: float
@@ -200,21 +213,23 @@ class _ModelBase:
             )
         return outputs
 
-    def predict(self, image, *, confidence=0.25, iou=0.45, top_k=5):
-        """Preprocess an image, infer, and return structured model results."""
-        if self.config.get("modality", "image") != "image":
-            raise NotImplementedError(
-                f"{self.config.get('task_type')} 不能使用图像 predict(image) 契约")
-        tensor, context = self.preprocess(image)
+    def predict(self, source, *, confidence=0.25, iou=0.45, top_k=5):
+        """Preprocess a modality-appropriate input and return structured results."""
+        tensor, context = self.preprocess(source)
         outputs = self.infer_raw(tensor)
         return self.postprocess(outputs, context, confidence=confidence, iou=iou, top_k=top_k)
 
-    def preprocess(self, image):
-        """Return the uint8 RGB model input and reversible image context."""
-        if self.config.get("modality", "image") != "image":
+    def preprocess(self, source):
+        """Return model input data and task-specific context."""
+        modality = self.config.get("modality", "image")
+        if modality == "audio":
+            return _preprocess_audio(
+                source, int(self.config.get("sample_rate", 16000)),
+                int(self.config.get("sample_count", self.config["input_size"][0])))
+        if modality != "image":
             raise NotImplementedError(
-                f"{self.config.get('task_type')} 尚未注册对应模态的 preprocess()")
-        original = _read_image(image)
+                f"{self.config.get('task_type')} 尚未注册 {modality} 模态的 preprocess()")
+        original = _read_image(source)
         if self.config.get("task_type") in {"classification", "text_recognition"}:
             width, height = self.config["input_size"]
             tensor = cv2.resize(original, (width, height))
@@ -237,6 +252,8 @@ class _ModelBase:
         task_type = self.config.get("task_type", "object_detection")
         if task_type == "classification":
             return _postprocess_classification(outputs, self.config.get("labels", []), top_k)
+        if task_type == "audio_classification" and architecture == "yamnet":
+            return _postprocess_yamnet(outputs, self.config.get("labels", []), top_k)
         if task_type == "text_recognition" and architecture == "lprnet":
             return _postprocess_lprnet(outputs)
         if task_type == "face_detection" and architecture == "retinaface":
@@ -323,8 +340,9 @@ class _ModelBase:
                           labels[int(cls)] if int(cls) < len(labels) else str(int(cls)))
                 for box, cls, score in zip(boxes, classes, scores)]
 
-    @staticmethod
-    def draw(image, results, output=None):
+    def draw(self, image, results, output=None):
+        if self.config.get("modality", "image") != "image":
+            raise NotImplementedError("draw() 仅适用于图像模型；音频分类结果请读取 label/score")
         canvas = _read_image(image).copy()
         for index, result in enumerate(results):
             if isinstance(result, OrientedDetection):
@@ -370,6 +388,60 @@ def _read_image(value):
     return image
 
 
+def _preprocess_audio(source, sample_rate, sample_count):
+    """Decode PCM WAV/array input into one fixed-length float32 waveform."""
+    source_rate = sample_rate
+    if isinstance(source, tuple) and len(source) == 2:
+        waveform, source_rate = source
+        waveform = np.asarray(waveform, dtype=np.float32)
+    elif isinstance(source, np.ndarray):
+        waveform = np.asarray(source, dtype=np.float32)
+    else:
+        path = Path(source)
+        try:
+            with wave.open(str(path), "rb") as audio:
+                source_rate = audio.getframerate()
+                channels = audio.getnchannels()
+                width = audio.getsampwidth()
+                frames = audio.readframes(audio.getnframes())
+        except (OSError, wave.Error) as exc:
+            raise ValueError(f"cannot read PCM WAV audio: {source}") from exc
+        if width == 1:
+            waveform = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif width == 2:
+            waveform = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+        elif width == 3:
+            raw = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3)
+            values = (raw[:, 0].astype(np.int32) |
+                      (raw[:, 1].astype(np.int32) << 8) |
+                      (raw[:, 2].astype(np.int32) << 16))
+            values = np.where(values & 0x800000, values - 0x1000000, values)
+            waveform = values.astype(np.float32) / 8388608.0
+        elif width == 4:
+            waveform = np.frombuffer(frames, dtype="<i4").astype(np.float32) / 2147483648.0
+        else:
+            raise ValueError(f"unsupported WAV sample width: {width} bytes")
+        if channels > 1:
+            waveform = waveform.reshape(-1, channels).mean(axis=1)
+    if waveform.ndim > 1:
+        waveform = waveform.mean(axis=-1)
+    waveform = np.asarray(waveform, dtype=np.float32).reshape(-1)
+    if source_rate <= 0:
+        raise ValueError(f"invalid audio sample rate: {source_rate}")
+    if source_rate != sample_rate and waveform.size:
+        output_count = max(1, int(round(waveform.size * sample_rate / source_rate)))
+        old_positions = np.arange(waveform.size, dtype=np.float64)
+        new_positions = np.arange(output_count, dtype=np.float64) * source_rate / sample_rate
+        waveform = np.interp(new_positions, old_positions, waveform).astype(np.float32)
+    actual_count = min(waveform.size, sample_count)
+    fixed = np.zeros(sample_count, dtype=np.float32)
+    fixed[:actual_count] = waveform[:actual_count]
+    return np.expand_dims(fixed, axis=0), {
+        "source_sample_rate": int(source_rate), "sample_rate": int(sample_rate),
+        "source_sample_count": int(waveform.size), "sample_count": int(sample_count),
+    }
+
+
 def _resolve_model_assets(model_path, config_path, packaged):
     if model_path is None:
         model = packaged / "model.rknn"
@@ -412,6 +484,26 @@ def _postprocess_classification(outputs, labels, top_k):
     return [Classification(int(class_id),
                            labels[int(class_id)] if int(class_id) < len(labels) else str(int(class_id)),
                            float(probabilities[class_id]), rank)
+            for rank, class_id in enumerate(indices, start=1)]
+
+
+def _postprocess_yamnet(outputs, labels, top_k):
+    if not labels:
+        raise ValueError("YAMNet SDK config is missing class labels")
+    candidates = []
+    for output in outputs:
+        value = np.asarray(output, dtype=np.float32)
+        if value.ndim >= 2 and value.shape[-1] == len(labels):
+            candidates.append(value.reshape(-1, len(labels)))
+    if len(candidates) != 1:
+        shapes = [list(np.asarray(output).shape) for output in outputs]
+        raise ValueError(
+            f"YAMNet expected exactly one score tensor ending in {len(labels)} classes; got {shapes}")
+    scores = candidates[0].mean(axis=0)
+    count = max(0, min(int(top_k), scores.size))
+    indices = np.argsort(scores)[::-1][:count]
+    return [AudioClassification(int(class_id), labels[int(class_id)],
+                                float(scores[class_id]), rank)
             for rank, class_id in enumerate(indices, start=1)]
 
 
@@ -965,3 +1057,7 @@ class PPYoloE(_ModelBase):
 
 class LPRNet(_ModelBase):
     architecture = "lprnet"
+
+
+class YAMNet(_ModelBase):
+    architecture = "yamnet"

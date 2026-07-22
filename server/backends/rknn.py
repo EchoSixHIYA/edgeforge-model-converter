@@ -22,11 +22,16 @@ class RknnBackend(ConversionBackend):
         rknn = RKNN(verbose=bool(options.get("verbose", False)))
         try:
             cfg = options["catalog"]
-            ret = rknn.config(
-                mean_values=[cfg.get("mean", [0, 0, 0])],
-                std_values=[cfg.get("std", [255, 255, 255])],
-                target_platform=options["platform"],
-            )
+            config_options = {"target_platform": options["platform"]}
+            # Image normalization is fused into RKNN.  Audio waveforms are
+            # already normalized float32 tensors; passing a single mean for a
+            # [1, samples] input makes Toolkit2 treat every sample as a channel.
+            if cfg.get("modality", "image") == "image":
+                config_options.update(
+                    mean_values=[cfg.get("mean", [0, 0, 0])],
+                    std_values=[cfg.get("std", [255, 255, 255])],
+                )
+            ret = rknn.config(**config_options)
             if ret not in (None, 0):
                 raise RuntimeError(f"rknn.config 失败，返回值 {ret}")
             progress(56, "加载 ONNX 图")
@@ -47,4 +52,3 @@ class RknnBackend(ConversionBackend):
                 raise RuntimeError(f"rknn.export_rknn 失败，返回值 {ret}")
         finally:
             rknn.release()
-

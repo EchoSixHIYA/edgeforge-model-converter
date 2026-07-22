@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace` 和 `LPRNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -59,6 +59,16 @@ finally:
 目标检测返回 `list[Detection]`。每项包含原图坐标 `box=(x1,y1,x2,y2)`、`score`、`class_id`、`label`，并提供 `as_dict()`。没有目标时返回空列表。未注册结构化后处理的架构会抛出 `NotImplementedError`。
 
 图像分类返回 `list[Classification]`，每项包含 `class_id`、`label`、Softmax 后的 `score`、`rank` 和 `as_dict()`；`top_k` 控制返回数量，`confidence/iou` 仅供检测任务使用。
+
+声音分类使用 `YAMNet`，返回 `list[AudioClassification]`。输入可为 PCM WAV 路径、float32 波形数组，或 `(波形, 采样率)`；SDK 自动转单声道、重采样至 16 kHz，并截断或补零为 3 秒。各时间帧的 521 类分数会求平均后按 `top_k` 返回：
+
+```python
+from edgeforge_sdk import YAMNet
+
+with YAMNet("model") as model:
+    events = model.predict("test.wav", top_k=5)
+    print([item.as_dict() for item in events])
+```
 
 ## `infer_raw()`
 

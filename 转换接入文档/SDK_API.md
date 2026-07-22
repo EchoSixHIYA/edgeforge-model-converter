@@ -10,7 +10,7 @@ with YoloV10("models/yolov10") as model:
     results = model.predict("test.jpg")
 ```
 
-已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace` 和 `LPRNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
+已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
 
 ## 1. 安装与运行环境
 
@@ -82,14 +82,14 @@ finally:
 ## 4. `predict()`
 
 ```python
-model.predict(image, *, confidence=0.25, iou=0.45, top_k=5)
+model.predict(source, *, confidence=0.25, iou=0.45, top_k=5)
 ```
 
 用途：面向业务的同步快捷入口，按顺序执行 `preprocess → infer_raw → postprocess`。
 
 参数：
 
-- `image`：图片路径（`str`/`Path`）或 OpenCV BGR `numpy.ndarray`，形状为 `H×W×3`。
+- `source`：图像模型接收图片路径或 OpenCV BGR `H×W×3` 数组；YAMNet 接收 PCM WAV 路径、float32 波形数组，或 `(波形数组, 采样率)`。
 - `confidence`：置信度阈值，范围通常为 0～1；低于阈值的候选被过滤。
 - `iou`：需要 NMS 的架构使用的交并比阈值；YOLOv10 的端到端/top-k 输出不执行传统 NMS。
 - `top_k`：分类模型返回的最高分结果数量；检测模型忽略该参数。
@@ -103,6 +103,16 @@ model.predict(image, *, confidence=0.25, iou=0.45, top_k=5)
 - `as_dict()`：生成可 JSON 序列化的字典。
 
 图像分类返回 `Classification` 列表，每项包含 `class_id`、`label`、Softmax 后的 `score`、从 1 开始的 `rank` 和 `as_dict()`。例如：
+
+YAMNet 返回 `AudioClassification` 列表。SDK 将输入转成单声道、重采样至 16 kHz，并截断或补零为 48,000 个样本（3 秒）；后处理对各时间帧的 521 类分数求平均后返回 Top-K。WAV 支持 8/16/24/32 位整数 PCM，不依赖额外音频库：
+
+```python
+from edgeforge_sdk import YAMNet
+
+with YAMNet("model") as model:
+    events = model.predict("test.wav", top_k=5)
+    print([item.as_dict() for item in events])
+```
 
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
 
@@ -142,7 +152,7 @@ model.infer_raw(inputs) -> list[numpy.ndarray]
 
 - 单输入模型可直接传一个 `numpy.ndarray`，SDK 会包装为单元素列表。
 - 多输入模型必须按 `config.json`/模型输入节点顺序传 `list` 或 `tuple`。
-- 当前图像 SDK 的标准输入来自 `preprocess()`：`uint8`、NHWC，并显式包含 batch 维。检测模型按自身契约转换 RGB，MobileNet 分类按 RKNN 官方示例保留 OpenCV BGR；不要跨模型复用预处理结果。
+- 图像 SDK 的标准输入来自 `preprocess()`：`uint8`、NHWC，并显式包含 batch 维。YAMNet 的标准输入为 `[1,48000]` float32 波形。不要跨模型或跨模态复用预处理结果。
 - 直接调用时，颜色、形状、数据类型和量化约定均由调用方负责。
 
 返回值始终是按模型输出节点顺序排列的数组列表，不做布局转换、阈值过滤、解码或坐标还原。输出可能是 NCHW 或 NHWC，也可能是量化整数；调用方不能假设固定数量或固定布局。
@@ -201,7 +211,7 @@ image → preprocess() → infer_raw() → postprocess() → 结构化结果
 
 - SDK 与生成它的模型、`config.json` 和 RKNN 运行时版本配套，不应混用其他任务的文件。
 - `predict()` 只对已完成结构化后处理和真实验收的架构开放。
-- 当前公共结构化结果包括目标检测 `Detection` 和图像分类 `Classification`；分割、姿态、OCR、语音及多模型任务会在各自结果类型和验收完成后开放。
+- 当前公共结构化结果包括检测/分割/姿态、人脸、车牌文本、图像分类，以及声音分类 `AudioClassification`；其余语音和多模型任务会在各自结果类型和验收完成后开放。
 - `reference/` 仅用于核对官方实现，业务代码应只导入 `edgeforge_sdk`。
 
 ### 任务类型不能混用
@@ -215,7 +225,7 @@ image → preprocess() → infer_raw() → postprocess() → 结构化结果
 | 姿态估计 | 图片 | `list[Pose]` | 框与关键点解码、关键点坐标还原 |
 | OCR | 图片或图片列表 | `list[OCRResult]` | 文本区域检测、裁剪排序、字符解码 |
 | 语音识别 | PCM/音频路径 | `Transcription` | 重采样、特征提取、CTC/自回归解码 |
-| 声音分类 | PCM/音频路径 | `list[Classification]` | 波形窗口、类别概率与标签 |
+| 声音分类 | PCM/音频路径 | `list[AudioClassification]` | 单声道化、16 kHz 重采样、3 秒波形窗口、帧分数平均与标签 |
 | 文字转语音 | 文本 | `AudioWaveform` | tokenizer、声学模型/解码器、波形输出 |
 
 工作台目录中的 `modality`、`task_type`、`result_type` 是机器可读契约。只有该任务的专用 exporter、预处理、结构化结果、后处理和真实验收全部完成，模型才会进入可提交列表。仅能得到裸张量时可以在研发阶段使用 `infer_raw()`，但不能把它标记成完整 SDK。

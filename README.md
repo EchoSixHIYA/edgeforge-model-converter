@@ -12,7 +12,7 @@
 - 用户入口禁止上传 ONNX；上传训练得到的原始权重后，服务必须先调用所选架构的专用仓库 exporter 生成友好 ONNX，再编译 RKNN。
 - INT8/UINT8 支持上传校准图片 ZIP；FP 模式无需校准集。
 - Server-Sent Events 实时显示进度；任务和日志持久化；转换任务串行排队。
-- 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的 `test.jpg`；调用方必须显式选择 `YoloV8`、`PPYoloE`、`RetinaFace` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
+- 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的演示输入（图像为 `test.jpg`，音频为 `test.wav`）；调用方必须显式选择 `YoloV8`、`PPYoloE`、`YAMNet` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
 - 后端通过 `ConversionBackend` 注册；以后新增 Sophon `.bmodel` 无需改网页任务协议。
 
 ## 在 WSL2 安装
@@ -23,7 +23,7 @@ Ubuntu 20.04 的 Python 3.8 与许多 RKNN-Toolkit2 官方 wheel 匹配。先从
 wsl -d Ubuntu-20.04 -- bash -lc "cd '/mnt/e/边缘部署/模型转换服务器' && bash scripts/setup_wsl.sh"
 ```
 
-安装脚本会同时安装 CPU 版 PyTorch、各 Rockchip YOLO 导出分支，以及 PP-YOLOE 专用的 Paddle 2.5.2 隔离环境。PP-YOLOE 环境位于 `/home/<用户>/.edgeforge-ppyoloe-export-venv`，脚本会安装其所需的系统库 `libgomp1`；该环境只负责 `.pdparams` 导出，不会污染主服务环境。
+安装脚本会同时安装 CPU 版 PyTorch、各 Rockchip YOLO 导出分支、PP-YOLOE 专用的 Paddle 2.5.2 环境，以及 YAMNet 专用的 TensorFlow 2.13.1 环境。两个隔离环境分别位于 `/home/<用户>/.edgeforge-ppyoloe-export-venv` 和 `/home/<用户>/.edgeforge-yamnet-export-venv`，只负责原始权重导出，不会污染主服务环境。
 
 ## 启动并从宿主机访问
 
