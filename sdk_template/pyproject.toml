@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edgeforge-model-sdk"
+version = "2.0.0"
+description = "Universal task-aware runtime SDK for EdgeForge RKNN model bundles"
+requires-python = ">=3.8"
+dependencies = ["numpy>=1.21", "opencv-python>=4.5"]
+
+[tool.setuptools]
+packages = ["edgeforge_sdk"]
+
+[tool.setuptools.package-data]
+edgeforge_sdk = ["config.json", "model.rknn"]

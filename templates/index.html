@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>EdgeForge · 模型转换平台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='responsive.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="nav-shell">
+      <a class="brand" href="/"><span class="brand-symbol">E</span><span>EdgeForge</span></a>
+      <nav><a href="#converter" class="active">模型转换</a><a href="#jobs">任务历史</a><a href="#delivery">SDK 交付</a></nav>
+      <div id="health" class="health"><i></i><span>正在检查转换环境</span></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-intro">
+      <div>
+        <span class="overline">EDGE DEPLOYMENT CONSOLE</span>
+        <h1>模型转换流水线</h1>
+        <p>上传原始训练权重，自动执行架构专用导出、芯片编译与可调用 SDK 封装。</p>
+      </div>
+      <div class="intro-badges"><span><b>{{ catalog|length }}</b> 官方模型</span><span><b>{{ catalog|selectattr('available')|list|length }}</b> 已验收可转换</span><span><b>SDK</b> 强制交付</span></div>
+    </section>
+
+    <form id="convertForm" class="converter-grid" enctype="multipart/form-data">
+      <section class="left-column" id="converter">
+        <div class="panel hardware-panel">
+          <div class="panel-heading"><span class="icon-box">◇</span><div><h2>硬件与模型</h2><p>选择目标平台和训练架构</p></div></div>
+          <div class="field-grid">
+            <label>芯片厂家
+              <select name="vendor" id="vendor" required>
+                {% for v in vendors %}<option value="{{ v.id }}" {% if not v.available %}disabled{% endif %}>{{ v.name }} · {{ v.format }}{% if not v.available %}（即将支持）{% endif %}</option>{% endfor %}
+              </select>
+            </label>
+            <label>目标芯片
+              <select name="platform" id="platform" required>{% for p in platforms %}<option value="{{ p }}">{{ p|upper }}</option>{% endfor %}</select>
+            </label>
+            <label class="wide">模型架构
+              <select name="architecture" id="architecture" required>
+                <optgroup label="已完成真实验收">
+                  {% for item in catalog if item.available %}<option value="{{ item.id }}" data-platforms='{{ item.platforms|tojson }}' data-formats='{{ item.weight_formats|tojson }}' data-size='{{ item.input_size|tojson }}' data-precisions='{{ item.precisions|tojson }}'>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                </optgroup>
+                <optgroup label="RK 官方目录（待完成闭环）">
+                  {% for item in catalog if not item.available %}<option value="{{ item.id }}" disabled title="{{ item.blocker }}">{{ item.name }} · {{ item.category }}（{{ item.status_label }}）</option>{% endfor %}
+                </optgroup>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <label class="dropzone" id="modelDrop">
+          <input type="file" name="model" id="modelFile" accept=".pt" required>
+          <span class="upload-orb"><span>⇧</span></span>
+          <strong id="modelLabel">拖入原始模型权重</strong>
+          <small id="sourceHint">仅接收训练得到的原始权重，ONNX 由服务内部生成</small>
+          <span class="browse-button">选择本地文件</span>
+        </label>
+
+        <div class="pipeline-strip" id="delivery">
+          <div><i>1</i><span><b>专用导出</b><small>原始权重 → 友好 ONNX</small></span></div><em>→</em>
+          <div><i>2</i><span><b>芯片编译</b><small>优化、量化、构建</small></span></div><em>→</em>
+          <div><i>3</i><span><b>SDK 封装</b><small>模型、接口与示例</small></span></div>
+        </div>
+      </section>
+
+      <aside class="panel config-panel">
+        <div class="panel-heading"><span class="icon-box">≡</span><div><h2>转换配置</h2><p>精度和校准数据</p></div></div>
+        <label>计算精度
+          <select name="precision" id="precision">
+            <option value="i8">INT8 · 推荐，最高 NPU 吞吐</option>
+            <option value="fp">FP16 / 浮点 · 保留更高精度</option>
+            <option value="u8">UINT8 · 兼容旧平台</option>
+          </select>
+        </label>
+        <label>模型输入形状
+          <input id="inputShape" value="1, 3, 640, 640" readonly>
+        </label>
+
+        <div class="calibration" id="calibrationBox">
+          <div class="calibration-copy"><span>量化校准集</span><small>INT8/UINT8 必需，建议 100–500 张真实场景图片。</small></div>
+          <label class="calibration-upload"><input type="file" name="calibration" id="calibrationFile" accept=".zip"><span>选择 ZIP</span></label>
+          <b id="calibrationName"></b>
+        </div>
+
+        <div class="delivery-note"><span>✓</span><p><b>始终包含可调用 SDK</b><small>下载包内含模型、统一接口、使用示例、说明文档与官方参考实现。</small></p></div>
+        <button class="primary" type="submit" id="submitButton"><span>开始转换</span><b>→</b></button>
+        <p class="form-error" id="formError"></p>
+      </aside>
+    </form>
+
+    <section class="jobs" id="jobs">
+      <div class="jobs-head"><div class="panel-heading"><span class="icon-box">↻</span><div><h2>转换任务</h2><p>实时进度与历史产物</p></div></div><button id="refresh" class="secondary">刷新</button></div>
+      <div class="jobs-table">
+        <div class="table-head"><span>任务 / 模型</span><span>目标平台</span><span>状态与进度</span><span>创建时间</span><span>产物</span></div>
+        <div id="empty" class="empty"><span>□</span><b>还没有转换任务</b><small>完成上方配置并上传原始权重后，任务会显示在这里。</small></div>
+        <div id="jobList" class="job-list"></div>
+      </div>
+    </section>
+
+    <section class="sdk-banner">
+      <div><span class="overline">DELIVERY STANDARD</span><h2>交付的是调用方案，不只是模型文件</h2><p>每个成功任务同时生成可安装 SDK，提供 <code>load</code>、<code>predict</code>、<code>infer_raw</code>、<code>postprocess</code> 和 CLI，并附可直接运行的使用示例。详细接口约定见 <a href="/docs/sdk-api">SDK API 文档</a>。</p></div>
+      <div class="code-preview"><span>example.py</span><pre>from edgeforge_sdk import EdgeModel
+
+with EdgeModel() as model:
+    results = model.predict("test.jpg")</pre></div>
+    </section>
+  </main>
+
+  <footer><div><b>EdgeForge</b><span>模型转换与边缘部署平台</span></div><span>RKNN-Toolkit2 · RKNN Model Zoo</span></footer>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+.venv/
+data/
+vendor/
+wheels/
+*.pyc
+__pycache__/
+.pytest_cache/
+*.rknn
+*.onnx
+*.pt
+*.pth
+*.zip
+*.log
+result/
+results/

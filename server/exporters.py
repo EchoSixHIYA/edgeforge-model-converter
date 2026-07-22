@@ -1,0 +1,130 @@
+"""Architecture-aware exporters from training weights to vendor-friendly ONNX."""
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+class ArchitectureExporters:
+    ROCKCHIP_REPOS = {
+        "yolov5": "yolov5", "yolov5_seg": "yolov5",
+        "yolov6": "yolov6",
+        "yolov7": "yolov7",
+        "yolox": "yolox",
+        "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
+        "yolov10": "yolov10", "yolo11": "yolo11",
+    }
+
+    def __init__(self, root):
+        self.root = Path(root)
+        self.repos = self.root / "vendor" / "exporters"
+
+    def supports(self, architecture, suffix, vendor):
+        if vendor != "rockchip":
+            return False
+        if architecture in {"mobilenet", "resnet", "yolox"}:
+            return suffix.lower() == ".pth"
+        return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
+
+    def export(self, source, work, architecture, vendor, progress):
+        if not self.supports(architecture, source.suffix, vendor):
+            raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传官方友好 ONNX")
+        if architecture in {"mobilenet", "resnet"}:
+            output = work / "model.onnx"
+            model_name = "mobilenet_v2" if architecture == "mobilenet" else "resnet50"
+            progress(24, f"调用 {model_name} 专用状态字典导出器")
+            self._run([
+                sys.executable, str(self.root / "server" / "torchvision_export_worker.py"),
+                "--architecture", model_name, "--model", str(source.resolve()),
+                "--output", str(output), "--metadata", str(work / "export_metadata.json"),
+            ], self.root)
+            return output
+        family = self.ROCKCHIP_REPOS[architecture]
+        metadata = work / "export_metadata.json"
+        progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")
+        if family == "yolox":
+            repo = self.repos / "yolox"
+            self._run([
+                sys.executable, str(self.root / "server" / "yolox_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(metadata),
+                "--official-labels", str(self.root / "vendor" / "rknn_model_zoo" /
+                                          "examples" / "yolox" / "model" /
+                                          "coco_80_labels_list.txt"),
+                "--official-s-sha256", "f55ded7181e1b0c13285c56e7790b8f0e8f8db590fe4edb37f0b7f345c913a30",
+            ], repo)
+            variant = __import__("json").loads(metadata.read_text(encoding="utf-8"))["model_variant"]
+            output = work / "model.onnx"
+            self._run([
+                sys.executable, "tools/export_onnx.py", "--output-name", str(output),
+                "-n", variant, "-c", str(source.resolve()), "--rknpu", "--no-onnxsim",
+            ], repo)
+            return output
+        if family == "yolov5":
+            repo = self.repos / "yolov5"
+            cmd = [sys.executable, "export.py", "--rknpu", "--weights", str(source.resolve()),
+                   "--include", "onnx", "--opset", "12", "--simplify"]
+            self._run(cmd, repo)
+            self._run([
+                sys.executable, str(self.root / "server" / "yolov5_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()), "--output", str(metadata),
+            ], repo)
+        elif family == "yolov6":
+            repo = self.repos / "yolov6"
+            self._run([
+                sys.executable, "deploy/RKNN/export_onnx_for_rknn.py",
+                "--weights", str(source.resolve()), "--device", "cpu",
+            ], repo)
+            self._run([
+                sys.executable, str(self.root / "server" / "yolov6_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(metadata),
+                "--official-labels", str(self.root / "vendor" / "rknn_model_zoo" /
+                                          "examples" / "yolov6" / "model" /
+                                          "coco_80_labels_list.txt"),
+                "--official-sha256", "3e2944e1c2d6a0dc4eed72e1493e3afe1c052373588b33abfecf0bfb4212b1a4",
+            ], repo)
+        elif family == "yolov7":
+            repo = self.repos / "yolov7"
+            self._run([
+                sys.executable, "export.py", "--rknpu", "--weights",
+                str(source.resolve()), "--device", "cpu",
+            ], repo)
+            self._run([
+                sys.executable, str(self.root / "server" / "yolov7_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(metadata),
+            ], repo)
+        elif family in {"yolov8", "yolo11"}:
+            repo = self.repos / family
+            cmd = [sys.executable, str(self.root / "server" / "export_worker.py"),
+                   "--repo", str(repo), "--model", str(source.resolve()),
+                   "--format", "rknn", "--opset", "12", "--imgsz", "640",
+                   "--metadata", str(metadata)]
+            self._run(cmd, repo)
+        else:
+            repo = self.root / "vendor" / "yolov10"
+            cmd = [sys.executable, str(self.root / "server" / "export_worker.py"),
+                   "--repo", str(repo), "--model", str(source.resolve()), "--format", "rknn", "--opset", "13"]
+            cmd.extend(["--metadata", str(metadata)])
+            self._run(cmd, repo)
+        candidates = sorted(source.parent.glob(f"{source.stem}*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            candidates = sorted(repo.rglob(f"{source.stem}*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            raise RuntimeError(f"{family} 导出命令结束，但未找到 ONNX 产物")
+        output = work / "model.onnx"
+        shutil.copy2(candidates[0], output)
+        return output
+
+    @staticmethod
+    def _run(cmd, cwd):
+        if not cwd.is_dir():
+            raise RuntimeError(f"缺少架构官方导出仓库: {cwd}")
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONPATH"] = str(Path(cwd).resolve()) + os.pathsep + env.get("PYTHONPATH", "")
+        proc = subprocess.run(cmd, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proc.returncode:
+            raise RuntimeError("模型架构导出失败:\n" + proc.stdout[-8000:])

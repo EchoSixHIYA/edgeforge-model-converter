@@ -1,0 +1,31 @@
+html, body { overflow-x: hidden; }
+
+.converter-grid > *,
+.left-column,
+.panel,
+.field-grid,
+.field-grid label,
+.config-panel label {
+  min-width: 0;
+}
+
+select,
+input {
+  max-width: 100%;
+}
+
+@media (max-width: 580px) {
+  .page-intro,
+  .converter-grid,
+  .left-column,
+  .config-panel,
+  .jobs,
+  .sdk-banner {
+    width: 100%;
+    min-width: 0;
+  }
+
+  select {
+    text-overflow: ellipsis;
+  }
+}
