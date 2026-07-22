@@ -56,6 +56,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("yamnet", ".onnx", "rockchip")
     assert exporter.supports("ppseg", ".pdparams", "rockchip")
     assert not exporter.supports("ppseg", ".onnx", "rockchip")
+    assert exporter.supports("deeplabv3", ".pb", "rockchip")
+    assert not exporter.supports("deeplabv3", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():

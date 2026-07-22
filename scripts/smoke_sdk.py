@@ -37,6 +37,7 @@ class_names = {
     "lprnet": "LPRNet",
     "yamnet": "YAMNet",
     "ppseg": "PPLiteSeg",
+    "deeplabv3": "DeepLabV3Plus",
     "yolox": "YoloX",
 }
 model = getattr(edgeforge_sdk, class_names[config["architecture"]])(dest / "model")
@@ -45,9 +46,14 @@ session = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
 if config["modality"] == "audio":
     input_tensor = tensor.astype(np.float32)
 else:
-    mean = np.asarray(model.config.get("mean", [0, 0, 0]), dtype=np.float32).reshape(1, 3, 1, 1)
-    std = np.asarray(model.config.get("std", [255, 255, 255]), dtype=np.float32).reshape(1, 3, 1, 1)
-    input_tensor = (tensor.transpose(0, 3, 1, 2).astype(np.float32) - mean) / std
+    if config.get("input_layout", "nchw") == "nhwc":
+        mean = np.asarray(model.config.get("mean", [0, 0, 0]), dtype=np.float32).reshape(1, 1, 1, 3)
+        std = np.asarray(model.config.get("std", [255, 255, 255]), dtype=np.float32).reshape(1, 1, 1, 3)
+        input_tensor = (tensor.astype(np.float32) - mean) / std
+    else:
+        mean = np.asarray(model.config.get("mean", [0, 0, 0]), dtype=np.float32).reshape(1, 3, 1, 1)
+        std = np.asarray(model.config.get("std", [255, 255, 255]), dtype=np.float32).reshape(1, 3, 1, 1)
+        input_tensor = (tensor.transpose(0, 3, 1, 2).astype(np.float32) - mean) / std
 outputs = session.run(None, {session.get_inputs()[0].name: input_tensor})
 detections = model.postprocess(outputs, context, confidence=args.confidence)
 if hasattr(detections, "class_ids"):

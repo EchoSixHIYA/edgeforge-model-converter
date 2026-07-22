@@ -10,7 +10,7 @@ with YoloV10("models/yolov10") as model:
     results = model.predict("test.jpg")
 ```
 
-已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、颜色表、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
+已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、颜色表、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
 
 ## 1. 安装与运行环境
 
@@ -124,6 +124,16 @@ with PPLiteSeg("model") as model:
     print(segmentation.class_ids)
     print(segmentation.as_dict())
     model.draw("test.png", segmentation, "result.png")
+```
+
+DeepLabV3+ 使用相同的 `SegmentationMask` 结果契约，但必须使用自己的显式类。它按官方实现将 `65×65×21` logits 双线性放大至 `513×513` 后再取 argmax，不能复用 PP-LiteSeg 的直接 logits 契约：
+
+```python
+from edgeforge_sdk import DeepLabV3Plus
+
+with DeepLabV3Plus("model") as model:
+    segmentation = model.predict("test_image.jpg")
+    model.draw("test_image.jpg", segmentation, "result.png")
 ```
 
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。

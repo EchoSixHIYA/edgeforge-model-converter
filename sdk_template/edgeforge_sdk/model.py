@@ -277,6 +277,10 @@ class _ModelBase:
         if task_type == "semantic_segmentation" and architecture == "ppseg":
             return _postprocess_semantic_mask(
                 outputs, self.config.get("labels", []), tuple(context["original_shape"]))
+        if task_type == "semantic_segmentation" and architecture == "deeplabv3":
+            return _postprocess_semantic_mask(
+                outputs, self.config.get("labels", []), tuple(context["original_shape"]),
+                tuple(self.config.get("logit_resize", self.config["input_size"])))
         if task_type == "text_recognition" and architecture == "lprnet":
             return _postprocess_lprnet(outputs)
         if task_type == "face_detection" and architecture == "retinaface":
@@ -539,7 +543,7 @@ def _postprocess_yamnet(outputs, labels, top_k):
             for rank, class_id in enumerate(indices, start=1)]
 
 
-def _postprocess_semantic_mask(outputs, labels, original_shape):
+def _postprocess_semantic_mask(outputs, labels, original_shape, logit_resize=None):
     if len(outputs) != 1:
         raise ValueError(f"semantic segmentation expected one output tensor, got {len(outputs)}")
     logits = np.asarray(outputs[0], dtype=np.float32)
@@ -547,11 +551,14 @@ def _postprocess_semantic_mask(outputs, labels, original_shape):
         raise ValueError(f"semantic segmentation expected [1,C,H,W] or [1,H,W,C], got {logits.shape}")
     class_count = len(labels)
     if class_count and logits.shape[1] == class_count:
-        mask = logits[0].argmax(axis=0)
+        pixels = logits[0].transpose(1, 2, 0)
     elif class_count and logits.shape[-1] == class_count:
-        mask = logits[0].argmax(axis=-1)
+        pixels = logits[0]
     else:
         raise ValueError(f"semantic output has no axis matching {class_count} configured classes: {logits.shape}")
+    if logit_resize and pixels.shape[:2] != (logit_resize[1], logit_resize[0]):
+        pixels = cv2.resize(pixels, tuple(logit_resize), interpolation=cv2.INTER_LINEAR)
+    mask = pixels.argmax(axis=-1)
     height, width = original_shape
     if mask.shape != (height, width):
         mask = cv2.resize(mask.astype(np.int32), (width, height), interpolation=cv2.INTER_NEAREST)
@@ -1116,3 +1123,7 @@ class YAMNet(_ModelBase):
 
 class PPLiteSeg(_ModelBase):
     architecture = "ppseg"
+
+
+class DeepLabV3Plus(_ModelBase):
+    architecture = "deeplabv3"

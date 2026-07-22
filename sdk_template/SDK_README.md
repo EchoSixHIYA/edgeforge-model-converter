@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -79,6 +79,16 @@ with PPLiteSeg("model") as model:
     segmentation = model.predict("test.png")
     print(segmentation.as_dict())
     model.draw("test.png", segmentation, "result.png")
+```
+
+DeepLabV3+ 同样返回 `SegmentationMask`，但使用专属的低分辨率 logits 放大流程：
+
+```python
+from edgeforge_sdk import DeepLabV3Plus
+
+with DeepLabV3Plus("model") as model:
+    segmentation = model.predict("test_image.jpg")
+    model.draw("test_image.jpg", segmentation, "result.png")
 ```
 
 ## `infer_raw()`

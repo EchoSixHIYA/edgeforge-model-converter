@@ -15,6 +15,7 @@ class ArchitectureExporters:
         "ppyoloe": "ppyoloe",
         "ppseg": "ppseg",
         "lprnet": "lprnet",
+        "deeplabv3": "deeplabv3",
         "yamnet": "yamnet",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
@@ -36,6 +37,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".pdparams"
         if architecture == "yamnet":
             return suffix.lower() == ".zip"
+        if architecture == "deeplabv3":
+            return suffix.lower() == ".pb"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
@@ -103,6 +106,22 @@ class ArchitectureExporters:
                 "--metadata", str(work / "export_metadata.json"),
                 "--labels", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
                                 "yamnet" / "model" / "yamnet_class_map.txt"),
+            ], self.root)
+            return output
+        if architecture == "deeplabv3":
+            output = work / "model.onnx"
+            tensorflow_python = Path(os.environ.get(
+                "EDGEFORGE_DEEPLAB_PYTHON", os.environ.get(
+                    "EDGEFORGE_YAMNET_PYTHON",
+                    str(Path(sys.prefix).parent / ".edgeforge-yamnet-export-venv" /
+                        "bin" / "python"))))
+            if not tensorflow_python.is_file():
+                raise RuntimeError(
+                    f"缺少 DeepLab TensorFlow 导出环境: {tensorflow_python}；请重新运行 scripts/setup_wsl.sh")
+            self._run([
+                str(tensorflow_python), str(self.root / "server" / "deeplab_export_worker.py"),
+                "--model", str(source.resolve()), "--output", str(output),
+                "--metadata", str(work / "export_metadata.json"),
             ], self.root)
             return output
         if architecture == "ppyoloe":

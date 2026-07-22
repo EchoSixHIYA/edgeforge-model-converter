@@ -23,7 +23,7 @@ Ubuntu 20.04 的 Python 3.8 与许多 RKNN-Toolkit2 官方 wheel 匹配。先从
 wsl -d Ubuntu-20.04 -- bash -lc "cd '/mnt/e/边缘部署/模型转换服务器' && bash scripts/setup_wsl.sh"
 ```
 
-安装脚本会同时安装 CPU 版 PyTorch、各 Rockchip YOLO 导出分支、PP-YOLOE/PP-LiteSeg 共用的 Paddle 2.5.2 环境，以及 YAMNet 专用的 TensorFlow 2.13.1 环境。两个隔离环境分别位于 `/home/<用户>/.edgeforge-ppyoloe-export-venv` 和 `/home/<用户>/.edgeforge-yamnet-export-venv`，只负责原始权重导出，不会污染主服务环境。
+安装脚本会同时安装 CPU 版 PyTorch、各 Rockchip YOLO 导出分支、PP-YOLOE/PP-LiteSeg 共用的 Paddle 2.5.2 环境，以及 YAMNet/DeepLabV3+ 共用的 TensorFlow 2.13.1 环境。两个隔离环境分别位于 `/home/<用户>/.edgeforge-ppyoloe-export-venv` 和 `/home/<用户>/.edgeforge-yamnet-export-venv`，只负责上游源模型导出，不会污染主服务环境。
 
 ## 启动并从宿主机访问
 

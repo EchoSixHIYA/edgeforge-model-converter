@@ -26,6 +26,7 @@ SDK_CLASSES = {
     "lprnet": "LPRNet",
     "yamnet": "YAMNet",
     "ppseg": "PPLiteSeg",
+    "deeplabv3": "DeepLabV3Plus",
 }
 
 
@@ -151,7 +152,7 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds"):
+        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
         config_text = json.dumps(runtime_config, ensure_ascii=False, indent=2)
@@ -164,9 +165,11 @@ class Pipeline:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
         if cfg["id"] == "ppseg":
             demo_name = "test.png"
+        elif cfg["id"] == "deeplabv3":
+            demo_name = "test_image.jpg"
         else:
             demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio" or cfg["id"] == "ppseg":
+        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3"}:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)
