@@ -153,6 +153,19 @@ with MobileSAM("model") as model:
 
 需要自行调度时，MobileSAM 的裸推理入口必须指明组件：`infer_raw(image, component="encoder")` 或 `infer_raw(decoder_inputs, component="decoder")`。解码器输入顺序固定为 `image_embeddings, point_coords, point_labels, mask_input, has_mask_input`；`postprocess()` 接收解码器的 `iou_predictions, low_res_masks` 以及同一次 `preprocess()` 的上下文。一般业务应优先使用 `predict()`，以免坐标缩放或模型间张量顺序出错。
 
+PPOCR 同样是一个双 RKNN 模型包，但使用独立的 `PPOCR` 类。`predict()` 先运行文本检测，再对按阅读顺序排列的四点区域进行透视裁剪和识别，返回 `list[OCRResult]`；每项包含原图四点 `polygon`、`text`、`score` 和 `as_dict()`：
+
+```python
+from edgeforge_sdk import PPOCR
+
+with PPOCR("model") as model:
+    lines = model.predict("test.jpg", confidence=0.5)
+    print([line.as_dict() for line in lines])
+    model.draw("test.jpg", lines, "result.jpg")
+```
+
+分步调用须使用 `infer_raw(inputs, component="det")` 或 `infer_raw(inputs, component="rec")`，并将同一组件传给 `postprocess(..., component=...)`。检测组件返回四点区域，识别组件返回 `(text, score)`；完整的检测到识别调度应优先交给 `predict()`。
+
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
 
 ```python

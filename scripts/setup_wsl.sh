@@ -35,6 +35,12 @@ for exporter in "${!exporter_repos[@]}"; do
 done
 python -m pip install timm==1.0.19
 
+PPOCR_REPO="vendor/exporters/ppocr"
+if [[ ! -d "$PPOCR_REPO/.git" ]]; then
+  git clone --branch release/2.7 --single-branch --depth 1 --filter=blob:none \
+    https://github.com/PaddlePaddle/PaddleOCR.git "$PPOCR_REPO"
+fi
+
 PPSEG_REPO="vendor/exporters/ppseg"
 if [[ ! -d "$PPSEG_REPO/.git" ]]; then
   git clone --branch release/2.8 --single-branch --depth 1 --filter=blob:none \
@@ -68,7 +74,7 @@ python3 -m venv "$PPYOLOE_VENV"
 "$PPYOLOE_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
 "$PPYOLOE_VENV/bin/python" -m pip install numpy==1.24.4 \
   paddlepaddle==2.5.2 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
-"$PPYOLOE_VENV/bin/python" -m pip install paddle2onnx==1.0.9 tqdm typeguard==2.13.3 \
+"$PPYOLOE_VENV/bin/python" -m pip install paddle2onnx==1.0.9 onnx==1.16.0 tqdm typeguard==2.13.3 \
   visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools \
   scikit-learn prettytable filelock
 

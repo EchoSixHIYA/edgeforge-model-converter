@@ -60,6 +60,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("deeplabv3", ".onnx", "rockchip")
     assert exporter.supports("mobilesam", ".pt", "rockchip")
     assert not exporter.supports("mobilesam", ".onnx", "rockchip")
+    assert exporter.supports("ppocr", ".zip", "rockchip")
+    assert not exporter.supports("ppocr", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -180,6 +182,18 @@ def test_mobilesam_restores_best_prompt_mask_to_original_image(tmp_path):
     assert result.mask.shape == (300, 600)
     assert result.mask.any()
     assert result.score == pytest.approx(.9)
+
+
+def test_ppocr_ctc_removes_blank_and_repeated_tokens():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _ppocr_ctc
+
+    probabilities = np.zeros((1, 7, 4), dtype=np.float32)
+    for timestep, token in enumerate((0, 1, 1, 0, 2, 3, 0)):
+        probabilities[0, timestep, token] = .9
+    text, score = _ppocr_ctc(probabilities, ["纯", "臻", " "])
+    assert text == "纯臻 "
+    assert score == pytest.approx(.9)
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

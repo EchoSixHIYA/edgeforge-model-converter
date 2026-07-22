@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPOCR`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -118,6 +118,19 @@ outputs = model.infer_raw(tensor)
 直接构造输入时，调用方负责颜色、尺寸、dtype 和量化约定。
 
 MobileSAM 分步调用时还须选择组件：`infer_raw(image, component="encoder")` 或 `infer_raw(decoder_inputs, component="decoder")`。一般业务使用 `predict()`，由 SDK 完成编码器到解码器的张量传递与提示坐标缩放。
+
+PPOCR 的模型目录包含 `det.rknn` 与 `rec.rknn`。完整调用会返回按阅读顺序排列的文本区域：
+
+```python
+from edgeforge_sdk import PPOCR
+
+with PPOCR("model") as model:
+    lines = model.predict("test.jpg", confidence=0.5)
+    print([line.as_dict() for line in lines])
+    model.draw("test.jpg", lines, "result.jpg")
+```
+
+分步调用使用 `component="det"` 或 `component="rec"`。检测结果必须经过透视裁剪后才能送入识别模型，一般业务请使用 `predict()` 自动完成整个流水线。
 
 ## `postprocess()`
 

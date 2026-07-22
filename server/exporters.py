@@ -18,6 +18,7 @@ class ArchitectureExporters:
         "deeplabv3": "deeplabv3",
         "yamnet": "yamnet",
         "mobilesam": "mobilesam",
+        "ppocr": "ppocr",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -42,6 +43,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".pb"
         if architecture == "mobilesam":
             return suffix.lower() == ".pt"
+        if architecture == "ppocr":
+            return suffix.lower() == ".zip"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
@@ -158,6 +161,26 @@ class ArchitectureExporters:
                 "--metadata", str(work / "export_metadata.json"),
             ], repo)
             return {"encoder": encoder, "decoder": decoder}
+        if architecture == "ppocr":
+            det = work / "det.onnx"
+            rec = work / "rec.onnx"
+            paddle_python = Path(os.environ.get(
+                "EDGEFORGE_PPOCR_PYTHON", os.environ.get(
+                    "EDGEFORGE_PPYOLOE_PYTHON",
+                    str(Path(sys.prefix).parent / ".edgeforge-ppyoloe-export-venv" /
+                        "bin" / "python"))))
+            if not paddle_python.is_file():
+                raise RuntimeError(
+                    f"缺少 PPOCR Paddle 导出环境: {paddle_python}；请重新运行 scripts/setup_wsl.sh")
+            progress(24, "从 PP-OCRv4 官方 Paddle 推理包导出固定尺寸检测与识别 ONNX")
+            self._run([
+                str(paddle_python), str(self.root / "server" / "ppocr_export_worker.py"),
+                "--model", str(source.resolve()), "--det", str(det), "--rec", str(rec),
+                "--metadata", str(work / "export_metadata.json"),
+                "--dictionary", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
+                                    "PPOCR" / "PPOCR-Rec" / "model" / "ppocr_keys_v1.txt"),
+            ], self.root)
+            return {"det": det, "rec": rec}
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"
         progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")

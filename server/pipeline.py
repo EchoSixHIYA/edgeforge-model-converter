@@ -28,6 +28,7 @@ SDK_CLASSES = {
     "ppseg": "PPLiteSeg",
     "deeplabv3": "DeepLabV3Plus",
     "mobilesam": "MobileSAM",
+    "ppocr": "PPOCR",
 }
 
 
@@ -71,6 +72,8 @@ class Pipeline:
                 "dataset": str(dataset) if dataset else None, "catalog": cfg,
             }
             if cfg["id"] == "mobilesam" and component == "decoder":
+                options["fuse_normalization"] = False
+            if cfg["id"] == "ppocr" and component == "rec":
                 options["fuse_normalization"] = False
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
@@ -137,7 +140,9 @@ class Pipeline:
             bytecode.unlink()
         example = self.model_zoo / "examples" / cfg["example"]
         reference = stage / "reference"
-        if example.is_dir():
+        if cfg["id"] == "ppocr" and example.parent.is_dir():
+            shutil.copytree(example.parent, reference, dirs_exist_ok=True)
+        elif example.is_dir():
             for name in ("python", "cpp", "model", "README.md"):
                 src = example / name
                 if src.is_dir():
@@ -173,7 +178,7 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count"):
+        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
         if len(outputs) > 1:
@@ -195,7 +200,7 @@ class Pipeline:
             demo_name = "test_image.jpg"
         else:
             demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam"}:
+        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam", "ppocr"}:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)

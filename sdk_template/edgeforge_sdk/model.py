@@ -91,6 +91,21 @@ class TextRecognition:
 
 
 @dataclass(frozen=True)
+class OCRResult:
+    polygon: tuple
+    text: str
+    score: float
+
+    @property
+    def label(self):
+        return self.text
+
+    def as_dict(self):
+        return {"polygon": [list(point) for point in self.polygon],
+                "text": self.text, "score": self.score}
+
+
+@dataclass(frozen=True)
 class Classification:
     class_id: int
     label: str
@@ -576,6 +591,101 @@ def _postprocess_semantic_mask(outputs, labels, original_shape, logit_resize=Non
     if mask.shape != (height, width):
         mask = cv2.resize(mask.astype(np.int32), (width, height), interpolation=cv2.INTER_NEAREST)
     return SegmentationMask(mask.astype(np.int32), tuple(labels))
+
+
+def _order_quad(points):
+    points = np.asarray(points, dtype=np.float32)
+    x_sorted = points[np.argsort(points[:, 0])]
+    left = x_sorted[:2][np.argsort(x_sorted[:2, 1])]
+    right = x_sorted[2:][np.argsort(x_sorted[2:, 1])]
+    return np.asarray([left[0], right[0], right[1], left[1]], dtype=np.float32)
+
+
+def _ppocr_db_boxes(output, original_shape, threshold=.3, box_threshold=.6, unclip_ratio=1.5):
+    import pyclipper
+
+    value = np.asarray(output, dtype=np.float32)
+    if value.ndim != 4 or value.shape[0] != 1:
+        raise ValueError(f"PPOCR det expected one 4D probability map, got {value.shape}")
+    if value.shape[1] == 1:
+        probability = value[0, 0]
+    elif value.shape[-1] == 1:
+        probability = value[0, :, :, 0]
+    else:
+        raise ValueError(f"PPOCR det probability map has no singleton channel: {value.shape}")
+    contours, _ = cv2.findContours((probability > threshold).astype(np.uint8) * 255,
+                                   cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    height, width = probability.shape
+    original_height, original_width = original_shape
+    boxes = []
+    for contour in contours[:1000]:
+        rect = cv2.minAreaRect(contour)
+        if min(rect[1]) < 3:
+            continue
+        points = _order_quad(cv2.boxPoints(rect))
+        x1, x2 = np.clip([np.floor(points[:, 0].min()), np.ceil(points[:, 0].max())], 0, width - 1).astype(int)
+        y1, y2 = np.clip([np.floor(points[:, 1].min()), np.ceil(points[:, 1].max())], 0, height - 1).astype(int)
+        mask = np.zeros((y2 - y1 + 1, x2 - x1 + 1), dtype=np.uint8)
+        local = points.copy(); local[:, 0] -= x1; local[:, 1] -= y1
+        cv2.fillPoly(mask, [local.astype(np.int32)], 1)
+        score = cv2.mean(probability[y1:y2 + 1, x1:x2 + 1], mask)[0]
+        if score < box_threshold:
+            continue
+        area = abs(cv2.contourArea(points))
+        perimeter = cv2.arcLength(points, True)
+        if perimeter <= 0:
+            continue
+        offset = pyclipper.PyclipperOffset()
+        offset.AddPath(points.tolist(), pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
+        expanded = offset.Execute(area * unclip_ratio / perimeter)
+        if len(expanded) != 1:
+            continue
+        enlarged = cv2.minAreaRect(np.asarray(expanded[0], dtype=np.float32).reshape(-1, 1, 2))
+        if min(enlarged[1]) < 5:
+            continue
+        box = _order_quad(cv2.boxPoints(enlarged))
+        box[:, 0] = np.clip(np.round(box[:, 0] / width * original_width), 0, original_width - 1)
+        box[:, 1] = np.clip(np.round(box[:, 1] / height * original_height), 0, original_height - 1)
+        if np.linalg.norm(box[0] - box[1]) > 3 and np.linalg.norm(box[0] - box[3]) > 3:
+            boxes.append(box)
+    boxes.sort(key=lambda box: (box[0, 1], box[0, 0]))
+    for index in range(len(boxes) - 1):
+        if abs(boxes[index + 1][0, 1] - boxes[index][0, 1]) < 10 and boxes[index + 1][0, 0] < boxes[index][0, 0]:
+            boxes[index], boxes[index + 1] = boxes[index + 1], boxes[index]
+    return boxes
+
+
+def _ppocr_crop(image, points):
+    points = np.asarray(points, dtype=np.float32)
+    width = max(1, int(max(np.linalg.norm(points[0] - points[1]),
+                           np.linalg.norm(points[2] - points[3]))))
+    height = max(1, int(max(np.linalg.norm(points[0] - points[3]),
+                            np.linalg.norm(points[1] - points[2]))))
+    target = np.float32([[0, 0], [width, 0], [width, height], [0, height]])
+    crop = cv2.warpPerspective(image, cv2.getPerspectiveTransform(points, target),
+                               (width, height), flags=cv2.INTER_CUBIC,
+                               borderMode=cv2.BORDER_REPLICATE)
+    return np.rot90(crop) if crop.shape[0] / max(crop.shape[1], 1) >= 1.5 else crop
+
+
+def _ppocr_ctc(output, characters):
+    probabilities = np.asarray(output, dtype=np.float32)
+    if probabilities.ndim != 3 or probabilities.shape[0] != 1:
+        raise ValueError(f"PPOCR rec expected [1,T,C] probabilities, got {probabilities.shape}")
+    class_count = len(characters) + 1
+    if probabilities.shape[-1] != class_count and probabilities.shape[1] == class_count:
+        probabilities = probabilities.transpose(0, 2, 1)
+    if probabilities.shape[-1] != class_count:
+        raise ValueError(f"PPOCR rec class count mismatch: {probabilities.shape[-1]} vs {class_count}")
+    indices = probabilities[0].argmax(axis=1)
+    scores, text, previous = [], [], 0
+    for timestep, index in enumerate(indices):
+        index = int(index)
+        if index != 0 and index != previous:
+            text.append(characters[index - 1])
+            scores.append(float(probabilities[0, timestep, index]))
+        previous = index
+    return "".join(text), float(np.mean(scores)) if scores else 0.0
 
 
 def _letterbox(image, size):
@@ -1284,6 +1394,79 @@ class MobileSAM(_ModelBase):
         box_points = [point for point, label in zip(result.point_coords, result.point_labels) if label in (2, 3)]
         if len(box_points) == 2:
             cv2.rectangle(canvas, tuple(map(int, box_points[0])), tuple(map(int, box_points[1])), (0, 255, 0), 2)
+        if output:
+            cv2.imwrite(str(output), canvas)
+        return canvas
+
+
+class PPOCR(MobileSAM):
+    """PP-OCRv4 detector/recognizer pipeline with structured text regions."""
+
+    architecture = "ppocr"
+
+    def _component_paths(self):
+        files = self.config.get("model_files")
+        if set(files or {}) != {"det", "rec"}:
+            raise ValueError("PPOCR config must declare det and rec model_files")
+        base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+        paths = {name: base / filename for name, filename in files.items()}
+        missing = [str(path) for path in paths.values() if not path.is_file()]
+        if missing:
+            raise ValueError(f"PPOCR model components not found: {missing}")
+        return paths
+
+    def infer_raw(self, inputs, *, component):
+        """Run the ``det`` or ``rec`` RKNN component and return untouched outputs."""
+        if component not in {"det", "rec"}:
+            raise ValueError("PPOCR component must be 'det' or 'rec'")
+        self.load()
+        values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        outputs = self.engines[component].inference(inputs=values)
+        if outputs is None:
+            raise RuntimeError(f"PPOCR {component} inference returned no outputs")
+        return outputs
+
+    def preprocess(self, source):
+        original = _read_image(source)
+        width, height = self.config["input_size"]
+        tensor = cv2.resize(original, (width, height), interpolation=cv2.INTER_LINEAR)
+        return np.expand_dims(tensor, 0), {
+            "original_shape": original.shape[:2], "original_image": original,
+        }
+
+    def postprocess(self, outputs, context, *, component, **_):
+        if len(outputs) != 1:
+            raise ValueError(f"PPOCR {component} expected one output, got {len(outputs)}")
+        if component == "det":
+            return _ppocr_db_boxes(outputs[0], context["original_shape"])
+        if component == "rec":
+            return _ppocr_ctc(outputs[0], self.config.get("characters", []))
+        raise ValueError("PPOCR component must be 'det' or 'rec'")
+
+    def predict(self, source, *, confidence=.5, **_):
+        det_tensor, context = self.preprocess(source)
+        boxes = self.postprocess(
+            self.infer_raw(det_tensor, component="det"), context, component="det")
+        results = []
+        rec_width, rec_height = self.config.get("rec_input_size", [320, 48])
+        for box in boxes:
+            crop = _ppocr_crop(context["original_image"], box)
+            resized = cv2.resize(crop, (rec_width, rec_height), interpolation=cv2.INTER_LINEAR)
+            rec_tensor = np.expand_dims(resized.astype(np.float32) / 255.0, 0)
+            text, score = self.postprocess(
+                self.infer_raw(rec_tensor, component="rec"), {}, component="rec")
+            if score >= confidence:
+                results.append(OCRResult(
+                    tuple(tuple(float(value) for value in point) for point in box), text, score))
+        return results
+
+    def draw(self, image, results, output=None):
+        canvas = _read_image(image).copy()
+        for result in results:
+            polygon = np.asarray(result.polygon, dtype=np.int32)
+            cv2.polylines(canvas, [polygon], True, (0, 255, 0), 2)
+            cv2.putText(canvas, result.text, tuple(polygon[0]), cv2.FONT_HERSHEY_SIMPLEX,
+                        .45, (0, 255, 0), 1, cv2.LINE_AA)
         if output:
             cv2.imwrite(str(output), canvas)
         return canvas

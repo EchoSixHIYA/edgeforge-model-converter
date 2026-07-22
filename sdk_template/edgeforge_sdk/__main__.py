@@ -1,9 +1,9 @@
 import argparse
 import json
 
-from . import DeepLabV3Plus, LPRNet, MobileNetV2, MobileSAM, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
+from . import DeepLabV3Plus, LPRNet, MobileNetV2, MobileSAM, PPOCR, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
 
-MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, DeepLabV3Plus, LPRNet, MobileNetV2, MobileSAM, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet)}
+MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, DeepLabV3Plus, LPRNet, MobileNetV2, MobileSAM, PPOCR, PPLiteSeg, PPYoloE, ResNet50, RetinaFace, YAMNet)}
 
 parser = argparse.ArgumentParser(description="EdgeForge model inference")
 parser.add_argument("model_class", choices=sorted(MODELS))
