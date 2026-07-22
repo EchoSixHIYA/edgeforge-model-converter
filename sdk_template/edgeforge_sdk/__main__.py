@@ -1,9 +1,9 @@
 import argparse
 import json
 
-from . import MobileNetV2, ResNet50, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
+from . import MobileNetV2, ResNet50, RetinaFace, Yolo11, YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, YoloX
 
-MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, MobileNetV2, ResNet50)}
+MODELS = {item.__name__: item for item in (YoloV5, YoloV5Seg, YoloV6, YoloV7, YoloV8, YoloV8Obb, YoloV8Pose, YoloV8Seg, YoloV10, Yolo11, YoloX, MobileNetV2, ResNet50, RetinaFace)}
 
 parser = argparse.ArgumentParser(description="EdgeForge model inference")
 parser.add_argument("model_class", choices=sorted(MODELS))

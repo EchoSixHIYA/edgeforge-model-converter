@@ -12,6 +12,7 @@ class ArchitectureExporters:
         "yolov6": "yolov6",
         "yolov7": "yolov7",
         "yolox": "yolox",
+        "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
     }
@@ -23,7 +24,7 @@ class ArchitectureExporters:
     def supports(self, architecture, suffix, vendor):
         if vendor != "rockchip":
             return False
-        if architecture in {"mobilenet", "resnet", "yolox"}:
+        if architecture in {"mobilenet", "resnet", "yolox", "retinaface"}:
             return suffix.lower() == ".pth"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
@@ -39,6 +40,16 @@ class ArchitectureExporters:
                 "--architecture", model_name, "--model", str(source.resolve()),
                 "--output", str(output), "--metadata", str(work / "export_metadata.json"),
             ], self.root)
+            return output
+        if architecture == "retinaface":
+            repo = self.repos / "retinaface"
+            output = work / "model.onnx"
+            self._run([
+                sys.executable, str(self.root / "server" / "retinaface_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(output), "--metadata", str(work / "export_metadata.json"),
+                "--imgsz", "320",
+            ], repo)
             return output
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"

@@ -10,7 +10,7 @@ with YoloV10("models/yolov10") as model:
     results = model.predict("test.jpg")
 ```
 
-已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`MobileNetV2` 和 `ResNet50`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
+已提供的显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`MobileNetV2`、`ResNet50` 和 `RetinaFace`，后续接入模型会继续注册到同一 SDK。切换模型只需替换模型目录，不需要重新安装。只复制裸 `.rknn` 不足以推断自定义标签、anchors、颜色顺序等信息，因此必须保留同目录 `config.json`；也可用 `config_path=` 显式指定。
 
 ## 1. 安装与运行环境
 
@@ -103,6 +103,17 @@ model.predict(image, *, confidence=0.25, iou=0.45, top_k=5)
 - `as_dict()`：生成可 JSON 序列化的字典。
 
 图像分类返回 `Classification` 列表，每项包含 `class_id`、`label`、Softmax 后的 `score`、从 1 开始的 `rank` 和 `as_dict()`。例如：
+
+人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。
+
+```python
+from edgeforge_sdk import RetinaFace
+
+with RetinaFace("models/retinaface") as model:
+    faces = model.predict("test.jpg", confidence=0.5)
+    print([face.as_dict() for face in faces])
+    model.draw("test.jpg", faces, "result.jpg")
+```
 
 ```python
 with MobileNetV2("model") as model:

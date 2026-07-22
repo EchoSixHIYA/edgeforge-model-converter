@@ -56,7 +56,8 @@
 | YOLOv5 Seg | 完成，7 路 `export.py --rknpu` 输出 | 完成，权重 anchors/prototype mask 与 `InstanceMask` | RK3588 FP 与官方 bus 图通过 | 开放 |
 | MobileNet V2 | 完成，接受 `.pth` 状态字典 | 完成，`Classification` Top-K | RK3588 FP；官方 bell 图类别 494 通过 | 开放 |
 | ResNet-50 | 完成，接受 `.pth` 状态字典 | 复用分类契约，RGB 预处理 | RK3588 FP；官方 dog 图类别 155 通过 | 开放 |
-| 其余 15 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
+| RetinaFace | 完成，接受 MobileNet0.25/ResNet50 `.pth` | 完成，`FaceDetection` 人脸框与 5 点关键点 | RK3588 FP；官方 test 图通过 | 开放 |
+| 其余 14 项 | 见工作台 `blocker` | 未完成 | 待开始 | 关闭 |
 
 ## YOLOv8 当前执行清单
 

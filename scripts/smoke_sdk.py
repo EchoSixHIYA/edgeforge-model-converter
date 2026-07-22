@@ -32,6 +32,7 @@ class_names = {
     "yolov8_seg": "YoloV8Seg",
     "yolov10": "YoloV10",
     "yolo11": "Yolo11", "mobilenet": "MobileNetV2", "resnet": "ResNet50",
+    "retinaface": "RetinaFace",
     "yolox": "YoloX",
 }
 model = getattr(edgeforge_sdk, class_names[config["architecture"]])(dest / "model")

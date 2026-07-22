@@ -25,6 +25,7 @@ declare -A exporter_repos=(
   [yolox]="https://github.com/airockchip/YOLOX.git"
   [yolov8]="https://github.com/airockchip/ultralytics_yolov8.git"
   [yolo11]="https://github.com/airockchip/ultralytics_yolo11.git"
+  [retinaface]="https://github.com/biubug6/Pytorch_Retinaface.git"
 )
 for exporter in "${!exporter_repos[@]}"; do
   if [[ ! -d "vendor/exporters/$exporter/.git" ]]; then

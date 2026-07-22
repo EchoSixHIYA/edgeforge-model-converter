@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV10`、`Yolo11`、`MobileNetV2`、`ResNet50`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`MobileNetV2`、`ResNet50` 和 `RetinaFace`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 

@@ -61,6 +61,20 @@ class InstanceMask:
 
 
 @dataclass(frozen=True)
+class FaceDetection:
+    box: tuple
+    score: float
+    landmarks: tuple
+    label: str = "face"
+    class_id: int = 0
+
+    def as_dict(self):
+        return {"box": list(self.box), "score": self.score,
+                "landmarks": [list(point) for point in self.landmarks],
+                "label": self.label, "class_id": self.class_id}
+
+
+@dataclass(frozen=True)
 class Classification:
     class_id: int
     label: str
@@ -193,8 +207,9 @@ class _ModelBase:
                 tensor = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB)
             return np.expand_dims(tensor, axis=0), {"original_shape": list(original.shape[:2])}
         tensor, transform = _letterbox(original, tuple(self.config["input_size"]))
-        rgb = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB)
-        return np.expand_dims(rgb, axis=0), {
+        if self.config.get("color_order", "rgb").lower() == "rgb":
+            tensor = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB)
+        return np.expand_dims(tensor, axis=0), {
             "original_shape": list(original.shape[:2]), "transform": list(transform)}
 
     def postprocess(self, outputs, context, *, confidence=0.25, iou=0.45, top_k=5):
@@ -207,6 +222,16 @@ class _ModelBase:
         task_type = self.config.get("task_type", "object_detection")
         if task_type == "classification":
             return _postprocess_classification(outputs, self.config.get("labels", []), top_k)
+        if task_type == "face_detection" and architecture == "retinaface":
+            boxes, scores, landmarks = _postprocess_retinaface(
+                outputs, tuple(self.config["input_size"]), confidence, iou)
+            boxes = _restore_boxes(boxes, tuple(context["transform"]),
+                                   tuple(context["original_shape"]))
+            landmarks = _restore_face_landmarks(
+                landmarks, tuple(context["transform"]), tuple(context["original_shape"]))
+            return [FaceDetection(tuple(float(x) for x in box), float(score),
+                                  tuple(tuple(float(x) for x in point) for point in points))
+                    for box, score, points in zip(boxes, scores, landmarks)]
         if task_type == "pose_estimation" and architecture == "yolov8_pose":
             boxes, scores, keypoints = _postprocess_yolov8_pose(
                 outputs, tuple(self.config["input_size"]), confidence, iou)
@@ -289,6 +314,12 @@ class _ModelBase:
                 polygon = np.asarray(result.points, dtype=np.int32)
                 cv2.polylines(canvas, [polygon], True, (42, 108, 82), 2)
                 origin = tuple(polygon[0])
+            elif isinstance(result, FaceDetection):
+                x1, y1, x2, y2 = map(int, result.box)
+                cv2.rectangle(canvas, (x1, y1), (x2, y2), (42, 108, 82), 2)
+                for x, y in result.landmarks:
+                    cv2.circle(canvas, (int(x), int(y)), 3, (58, 155, 220), -1)
+                origin = (x1, max(16, y1 - 6))
             elif isinstance(result, InstanceMask):
                 overlay = np.zeros_like(canvas)
                 overlay[result.mask] = (58, 155, 220)
@@ -717,6 +748,55 @@ def _postprocess_yolov5_seg(outputs, size, nc, anchors, confidence, iou):
     return boxes, classes, scores, resized > .5
 
 
+def _retinaface_priors(size):
+    width, height = size
+    priors = []
+    for min_sizes, step in zip(((16, 32), (64, 128), (256, 512)), (8, 16, 32)):
+        feature_h = int(np.ceil(height / step))
+        feature_w = int(np.ceil(width / step))
+        for row in range(feature_h):
+            for col in range(feature_w):
+                for minimum in min_sizes:
+                    priors.append(((col + .5) * step / width, (row + .5) * step / height,
+                                   minimum / width, minimum / height))
+    return np.asarray(priors, dtype=np.float32)
+
+
+def _postprocess_retinaface(outputs, size, confidence, iou):
+    if len(outputs) != 3:
+        raise ValueError(f"RetinaFace expected 3 output tensors, got {len(outputs)}")
+    loc = np.asarray(outputs[0], dtype=np.float32).reshape(-1, 4)
+    probabilities = np.asarray(outputs[1], dtype=np.float32).reshape(-1, 2)
+    raw_landmarks = np.asarray(outputs[2], dtype=np.float32).reshape(-1, 10)
+    priors = _retinaface_priors(size)
+    if len(loc) != len(priors) or len(probabilities) != len(priors) or len(raw_landmarks) != len(priors):
+        raise ValueError(
+            f"RetinaFace output/prior mismatch: {len(loc)}, {len(probabilities)}, "
+            f"{len(raw_landmarks)} vs {len(priors)}")
+    center = priors[:, :2] + loc[:, :2] * .1 * priors[:, 2:]
+    extent = priors[:, 2:] * np.exp(loc[:, 2:] * .2)
+    boxes = np.concatenate((center - extent / 2, center + extent / 2), axis=1)
+    scale = np.asarray((size[0], size[1], size[0], size[1]), dtype=np.float32)
+    boxes *= scale
+    points = []
+    for index in range(5):
+        points.append(priors[:, :2] + raw_landmarks[:, index * 2:index * 2 + 2] * .1 * priors[:, 2:])
+    landmarks = np.stack(points, axis=1)
+    landmarks[:, :, 0] *= size[0]
+    landmarks[:, :, 1] *= size[1]
+    scores = probabilities[:, 1]
+    keep = np.where(scores >= confidence)[0]
+    boxes, scores, landmarks = boxes[keep], scores[keep], landmarks[keep]
+    if not len(scores):
+        return boxes, scores, landmarks
+    xywh = boxes.copy()
+    xywh[:, 2:] -= xywh[:, :2]
+    selected = cv2.dnn.NMSBoxes(xywh.tolist(), scores.tolist(), confidence, iou)
+    selected = np.asarray(selected).reshape(-1).astype(np.int64) if len(selected) else np.empty(0, dtype=np.int64)
+    selected = selected[np.argsort(scores[selected])[::-1]]
+    return boxes[selected], scores[selected], landmarks[selected]
+
+
 def _restore_boxes(boxes, transform, shape):
     ratio, left, top = transform
     result = boxes.copy()
@@ -757,6 +837,15 @@ def _restore_masks(masks, transform, shape):
         restored.append(cv2.resize(content, (shape[1], shape[0]),
                                    interpolation=cv2.INTER_NEAREST).astype(bool))
     return np.stack(restored) if restored else np.empty((0, shape[0], shape[1]), dtype=bool)
+
+
+def _restore_face_landmarks(landmarks, transform, shape):
+    ratio, left, top = transform
+    result = landmarks.copy()
+    if len(result):
+        result[:, :, 0] = ((result[:, :, 0] - left) / ratio).clip(0, shape[1] - 1)
+        result[:, :, 1] = ((result[:, :, 1] - top) / ratio).clip(0, shape[0] - 1)
+    return result
 
 
 class YoloV5(_ModelBase):
@@ -809,3 +898,7 @@ class MobileNetV2(_ModelBase):
 
 class ResNet50(_ModelBase):
     architecture = "resnet"
+
+
+class RetinaFace(_ModelBase):
+    architecture = "retinaface"

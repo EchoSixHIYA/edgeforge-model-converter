@@ -46,6 +46,25 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolov6", ".pt", "rockchip")
     assert exporter.supports("yolov7", ".pt", "rockchip")
     assert exporter.supports("yolox", ".pth", "rockchip")
+    assert exporter.supports("retinaface", ".pth", "rockchip")
+    assert not exporter.supports("retinaface", ".onnx", "rockchip")
+
+
+def test_retinaface_decodes_box_and_five_landmarks():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_retinaface
+
+    locations = np.zeros((1, 4200, 4), dtype=np.float32)
+    probabilities = np.zeros((1, 4200, 2), dtype=np.float32)
+    landmarks = np.zeros((1, 4200, 10), dtype=np.float32)
+    probabilities[0, 0, 1] = .99
+
+    boxes, scores, points = _postprocess_retinaface(
+        [locations, probabilities, landmarks], (320, 320), .5, .4)
+
+    assert boxes.shape == (1, 4)
+    assert scores.tolist() == pytest.approx([.99])
+    assert points.shape == (1, 5, 2)
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():
