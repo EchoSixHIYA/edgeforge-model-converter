@@ -1052,6 +1052,43 @@ def _postprocess_yolov5_seg(outputs, size, nc, anchors, confidence, iou):
     return boxes, classes, scores, resized > .5
 
 
+def _postprocess_yolo_world(outputs, size, nc, confidence, iou):
+    if len(outputs) != 6:
+        raise ValueError(f"YOLO-World expected 6 output tensors, got {len(outputs)}")
+    boxes, probabilities = [], []
+    for branch in range(3):
+        scores = _nchw(outputs[branch * 2]).astype(np.float32)
+        distances = _nchw(outputs[branch * 2 + 1]).astype(np.float32)
+        if scores.ndim != 4 or scores.shape[1] < nc or distances.shape[1] != 4:
+            raise ValueError(
+                f"unexpected YOLO-World branch shapes: {scores.shape}, {distances.shape}")
+        _, _, height, width = distances.shape
+        col, row = np.meshgrid(np.arange(width), np.arange(height))
+        stride_x, stride_y = size[0] / width, size[1] / height
+        x1 = (col + .5 - distances[0, 0]) * stride_x
+        y1 = (row + .5 - distances[0, 1]) * stride_y
+        x2 = (col + .5 + distances[0, 2]) * stride_x
+        y2 = (row + .5 + distances[0, 3]) * stride_y
+        boxes.append(np.stack((x1, y1, x2, y2), axis=-1).reshape(-1, 4))
+        probabilities.append(scores[:, :nc].transpose(0, 2, 3, 1).reshape(-1, nc))
+    boxes, probabilities = np.concatenate(boxes), np.concatenate(probabilities)
+    classes = probabilities.argmax(axis=1)
+    scores = probabilities[np.arange(len(probabilities)), classes]
+    keep = np.where(scores >= confidence)[0]
+    boxes, classes, scores = boxes[keep], classes[keep], scores[keep]
+    selected = []
+    for class_id in np.unique(classes):
+        ids = np.where(classes == class_id)[0]
+        xywh = boxes[ids].copy(); xywh[:, 2:] -= xywh[:, :2]
+        local = cv2.dnn.NMSBoxes(xywh.tolist(), scores[ids].tolist(), confidence, iou)
+        if len(local):
+            selected.extend(ids[np.asarray(local).reshape(-1)].tolist())
+    selected = np.asarray(selected, dtype=np.int64)
+    if len(selected):
+        selected = selected[np.argsort(scores[selected])[::-1]]
+    return boxes[selected], classes[selected], scores[selected]
+
+
 def _retinaface_priors(size):
     width, height = size
     priors = []
@@ -1583,6 +1620,78 @@ class CLIP(MobileSAM):
             cv2.putText(canvas, f"{result.rank}. {result.text}: {result.score:.3f}",
                         (12, 28 + index * 24), cv2.FONT_HERSHEY_SIMPLEX,
                         .55, (42, 108, 82), 2, cv2.LINE_AA)
+        if output:
+            cv2.imwrite(str(output), canvas)
+        return canvas
+
+
+class YoloWorld(CLIP):
+    """YOLO-World V2 detector with runtime open-vocabulary text prompts."""
+
+    architecture = "yolo_world"
+
+    def _component_paths(self):
+        files = self.config.get("model_files")
+        if set(files or {}) != {"detector", "text"}:
+            raise ValueError("YoloWorld config must declare detector and text model_files")
+        base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+        paths = {name: base / filename for name, filename in files.items()}
+        missing = [str(path) for path in paths.values() if not path.is_file()]
+        if missing:
+            raise ValueError(f"YoloWorld model components not found: {missing}")
+        return paths
+
+    def infer_raw(self, inputs, *, component):
+        """Run the ``text`` encoder or the two-input ``detector`` component."""
+        if component not in {"detector", "text"}:
+            raise ValueError("YoloWorld component must be 'detector' or 'text'")
+        self.load()
+        values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        outputs = self.engines[component].inference(inputs=values)
+        if outputs is None:
+            raise RuntimeError(f"YoloWorld {component} inference returned no outputs")
+        return outputs
+
+    def preprocess(self, source):
+        original = _read_image(source)
+        tensor, transform = _letterbox(original, tuple(self.config["input_size"]))
+        tensor = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        return np.expand_dims(tensor, 0), {
+            "original_shape": list(original.shape[:2]), "transform": list(transform)}
+
+    def postprocess(self, outputs, context, *, confidence=.25, iou=.45, **_):
+        texts = context["texts"]
+        boxes, classes, scores = _postprocess_yolo_world(
+            outputs, tuple(self.config["input_size"]), len(texts), confidence, iou)
+        boxes = _restore_boxes(
+            boxes, tuple(context["transform"]), tuple(context["original_shape"]))
+        return [Detection(tuple(float(value) for value in box), float(score), int(class_id),
+                          str(texts[int(class_id)]))
+                for box, class_id, score in zip(boxes, classes, scores)]
+
+    def predict(self, source, *, texts, confidence=.25, iou=.45, **_):
+        texts = [str(text) for text in texts]
+        capacity = int(self.config.get("num_classes", 80))
+        if not texts or len(texts) > capacity:
+            raise ValueError(f"YoloWorld requires 1..{capacity} text prompts")
+        image, context = self.preprocess(source)
+        prompts = texts + [""] * (capacity - len(texts))
+        token_ids = self._tokenize(prompts)
+        embeddings = [self.infer_raw(row[None, :], component="text")[0]
+                      for row in token_ids]
+        text_features = np.expand_dims(np.concatenate(embeddings, axis=0), 0)
+        outputs = self.infer_raw([image, text_features], component="detector")
+        context["texts"] = texts
+        return self.postprocess(outputs, context, confidence=confidence, iou=iou)
+
+    def draw(self, image, results, output=None):
+        canvas = _read_image(image).copy()
+        for result in results:
+            x1, y1, x2, y2 = map(int, result.box)
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), (42, 108, 82), 2)
+            cv2.putText(canvas, f"{result.label} {result.score:.2f}",
+                        (x1, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX,
+                        .55, (42, 108, 82), 2)
         if output:
             cv2.imwrite(str(output), canvas)
         return canvas

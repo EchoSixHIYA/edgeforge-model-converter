@@ -179,6 +179,27 @@ with CLIP("model") as model:
     print([item.as_dict() for item in matches])
 ```
 
+### YOLO-World
+
+`YoloWorld` 使用同一模型目录中的 `detector.rknn`、`text.rknn` 和 `tokenizer/`。调用者显式传入 1–80 个类别文本，SDK 自动完成 tokenization、逐条文本编码、80 类特征补齐、双输入检测和三尺度 NMS：
+
+```python
+from edgeforge_sdk import YoloWorld
+
+with YoloWorld("model") as model:
+    detections = model.predict(
+        "bus.jpg", texts=["person", "bus", "stop sign"],
+        confidence=0.25, iou=0.45,
+    )
+```
+
+- `load()`：同时加载并初始化文本编码器和检测器两个 RKNN；重复调用安全。
+- `predict()`：推荐入口，返回 `list[Detection]`，坐标已还原到原图，`label` 是调用时传入的文本。
+- `infer_raw(inputs, component="text")`：输入 `[1,20]` token IDs，返回归一化的 `[1,512]` 文本特征。
+- `infer_raw([image, text_features], component="detector")`：输入预处理图像与 `[1,80,512]` 文本特征，返回三组类别概率和距离框。
+- `postprocess(outputs, context, confidence=..., iou=...)`：`context` 必须包含 `preprocess()` 产生的缩放信息和本次 `texts`；执行距离框解码、按类 NMS 和原图坐标恢复。
+- `draw()`：绘制开放词汇标签、置信度与边界框。
+
 分步调用使用 `component="image"` 或 `component="text"`。文本输入必须由随包 tokenizer 编码并补齐为 20 token；一般业务应使用 `predict()`，由 SDK 完成 tokenizer、两个编码器、特征归一化、相似度缩放和 Softmax。
 
 人脸检测使用显式 `RetinaFace`，返回 `FaceDetection` 列表。除 `box`、`score`、`label`、`class_id` 外，每项的 `landmarks` 固定包含 5 个原图坐标点，顺序为左眼、右眼、鼻尖、左嘴角、右嘴角；`draw()` 会同时绘制人脸框和关键点。

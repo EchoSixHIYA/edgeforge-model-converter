@@ -9,7 +9,7 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloX`、`PPYoloE`、`PPOCR`、`CLIP`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、tokenizer、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloWorld`、`YoloX`、`PPYoloE`、`PPOCR`、`CLIP`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、tokenizer、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
@@ -144,6 +144,18 @@ with CLIP("model") as model:
     )
     print([item.as_dict() for item in matches])
 ```
+
+YOLO-World 的模型目录包含 `detector.rknn`、`text.rknn` 和 tokenizer。一次可传入 1–80 个开放词汇类别；SDK 自动编码提示词、补齐检测器固定输入并返回普通 `Detection`：
+
+```python
+from edgeforge_sdk import YoloWorld
+
+with YoloWorld("model") as model:
+    detections = model.predict("bus.jpg", texts=["person", "bus", "stop sign"])
+    model.draw("bus.jpg", detections, "result.jpg")
+```
+
+分步调用时，`infer_raw(..., component="text")` 输入 `[1,20]` token IDs；`infer_raw([image, text_features], component="detector")` 输入图像与 `[1,80,512]` 文本特征。`postprocess()` 需要由 `preprocess()` 产生的坐标上下文及实际 `texts`，业务代码通常应直接使用 `predict()`。
 
 分步裸推理使用 `component="image"` 或 `component="text"`；业务调用请保留随包 `tokenizer/` 并优先使用 `predict()`。
 

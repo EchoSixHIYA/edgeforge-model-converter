@@ -30,6 +30,7 @@ SDK_CLASSES = {
     "mobilesam": "MobileSAM",
     "ppocr": "PPOCR",
     "clip": "CLIP",
+    "yolo_world": "YoloWorld",
 }
 
 
@@ -77,6 +78,8 @@ class Pipeline:
             if cfg["id"] == "ppocr" and component == "rec":
                 options["fuse_normalization"] = False
             if cfg["id"] == "clip" and component == "text":
+                options["fuse_normalization"] = False
+            if cfg["id"] == "yolo_world":
                 options["fuse_normalization"] = False
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
@@ -185,7 +188,7 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters", "sequence_length", "pad_token_id", "logit_scale", "tokenizer_directory"):
+        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters", "sequence_length", "pad_token_id", "logit_scale", "tokenizer_directory", "num_classes"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
         if len(outputs) > 1:
@@ -201,6 +204,8 @@ class Pipeline:
             raise ValueError(f"{cfg['name']} 尚未登记显式 SDK 类")
         if cfg["id"] == "clip":
             demo_name = "dog_224x224.jpg"
+        elif cfg["id"] == "yolo_world":
+            demo_name = "bus.jpg"
         elif cfg["id"] == "mobilesam":
             demo_name = "picture.jpg"
         elif cfg["id"] == "ppseg":
@@ -209,7 +214,7 @@ class Pipeline:
             demo_name = "test_image.jpg"
         else:
             demo_name = "test.wav" if cfg["modality"] == "audio" else "test.jpg"
-        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam", "ppocr", "clip"}:
+        if cfg["modality"] == "audio" or cfg["id"] in {"ppseg", "deeplabv3", "mobilesam", "ppocr", "clip", "yolo_world"}:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)
@@ -218,6 +223,13 @@ class Pipeline:
                 f"from edgeforge_sdk import {sdk_class}\n\n"
                 f"with {sdk_class}(\"model\") as model:\n"
                 f"    results = model.predict(\"{demo_name}\", texts=[\"a photo of a dog\", \"a photo of a cat\"])\n"
+                "    print([item.as_dict() for item in results])\n"
+                f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n")
+        elif cfg["id"] == "yolo_world":
+            example_text = (
+                f"from edgeforge_sdk import {sdk_class}\n\n"
+                f"with {sdk_class}(\"model\") as model:\n"
+                f"    results = model.predict(\"{demo_name}\", texts=[\"person\", \"bus\"])\n"
                 "    print([item.as_dict() for item in results])\n"
                 f"    model.draw(\"{demo_name}\", results, \"result.jpg\")\n")
         elif cfg["id"] == "mobilesam":

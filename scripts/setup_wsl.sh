@@ -27,12 +27,17 @@ declare -A exporter_repos=(
   [yolo11]="https://github.com/airockchip/ultralytics_yolo11.git"
   [retinaface]="https://github.com/biubug6/Pytorch_Retinaface.git"
   [mobilesam]="https://github.com/airockchip/MobileSAM.git"
+  [yolo_world]="https://github.com/airockchip/YOLO-World.git"
 )
 for exporter in "${!exporter_repos[@]}"; do
   if [[ ! -d "vendor/exporters/$exporter/.git" ]]; then
     git clone --depth 1 "${exporter_repos[$exporter]}" "vendor/exporters/$exporter"
   fi
 done
+if [[ ! -d vendor/exporters/yolo_world/third_party/mmyolo/.git ]]; then
+  git clone --depth 1 https://github.com/onuralpszr/mmyolo.git \
+    vendor/exporters/yolo_world/third_party/mmyolo
+fi
 python -m pip install timm==1.0.19 transformers==4.46.3
 
 CLIP_ASSETS="vendor/exporters/clip"
@@ -94,6 +99,21 @@ python3 -m venv "$YAMNET_VENV"
 "$YAMNET_VENV/bin/python" -m pip install \
   numpy==1.24.3 onnx==1.16.0 onnxruntime==1.17.3 \
   tensorflow==2.13.1 tensorflow_hub==0.16.1 tf2onnx==1.16.1
+
+# YOLO-World's official OpenMMLab exporter requires the MMCV binary built for
+# Torch 2.0.  Keep it isolated until the final exporter-runtime consolidation.
+YOLO_WORLD_VENV="/home/$(id -un)/.edgeforge-yolo-world-export-venv"
+python3 -m venv "$YOLO_WORLD_VENV"
+"$YOLO_WORLD_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+"$YOLO_WORLD_VENV/bin/python" -m pip install \
+  torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cpu
+"$YOLO_WORLD_VENV/bin/python" -m pip install \
+  mmcv==2.0.0 -f https://download.openmmlab.com/mmcv/dist/cpu/torch2.0/index.html
+"$YOLO_WORLD_VENV/bin/python" -m pip install \
+  mmdet==3.0.0 mmengine==0.10.3 supervision==0.19.0 transformers==4.36.2 \
+  onnx==1.16.2 onnxruntime==1.19.2 prettytable
+"$YOLO_WORLD_VENV/bin/python" -m pip install --no-build-isolation --no-deps \
+  -e vendor/exporters/yolo_world/third_party/mmyolo -e vendor/exporters/yolo_world
 
 shopt -s nullglob
 rknn_wheels=(wheels/rknn_toolkit2*.whl wheels/rknn-toolkit2*.whl)

@@ -64,6 +64,8 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("ppocr", ".onnx", "rockchip")
     assert exporter.supports("clip", ".bin", "rockchip")
     assert not exporter.supports("clip", ".onnx", "rockchip")
+    assert exporter.supports("yolo_world", ".pth", "rockchip")
+    assert not exporter.supports("yolo_world", ".onnx", "rockchip")
 
 
 def test_retinaface_decodes_box_and_five_landmarks():
@@ -211,6 +213,25 @@ def test_clip_similarity_returns_ranked_text_candidates():
     assert all(isinstance(item, Similarity) for item in results)
     assert [item.text for item in results] == ["dog", "cat"]
     assert results[0].score > .99
+
+
+def test_yolo_world_decodes_open_vocabulary_branches():
+    import numpy as np
+    from sdk_template.edgeforge_sdk.model import _postprocess_yolo_world
+
+    outputs = []
+    for branch, size in enumerate((80, 40, 20)):
+        probabilities = np.zeros((1, 80, size, size), dtype=np.float32)
+        distances = np.ones((1, 4, size, size), dtype=np.float32)
+        if branch == 0:
+            probabilities[0, 1, 10, 10] = .9
+        outputs.extend((probabilities, distances))
+    boxes, classes, scores = _postprocess_yolo_world(
+        outputs, (640, 640), 2, .25, .45)
+
+    assert boxes.shape == (1, 4)
+    assert classes.tolist() == [1]
+    assert scores.tolist() == pytest.approx([.9])
 
 
 def test_yolov8_pose_returns_seventeen_keypoints():

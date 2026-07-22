@@ -20,6 +20,7 @@ class ArchitectureExporters:
         "mobilesam": "mobilesam",
         "ppocr": "ppocr",
         "clip": "clip",
+        "yolo_world": "yolo_world",
         "retinaface": "retinaface",
         "yolov8": "yolov8", "yolov8_seg": "yolov8", "yolov8_pose": "yolov8", "yolov8_obb": "yolov8",
         "yolov10": "yolov10", "yolo11": "yolo11",
@@ -48,6 +49,8 @@ class ArchitectureExporters:
             return suffix.lower() == ".zip"
         if architecture == "clip":
             return suffix.lower() == ".bin"
+        if architecture == "yolo_world":
+            return suffix.lower() == ".pth"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
     def export(self, source, work, architecture, vendor, progress):
@@ -197,6 +200,30 @@ class ArchitectureExporters:
                 "--metadata", str(work / "export_metadata.json"),
             ], self.root)
             return {"image": image_model, "text": text_model}
+        if architecture == "yolo_world":
+            detector = work / "detector.onnx"
+            text_model = work / "text.onnx"
+            repo = self.repos / "yolo_world"
+            assets = self.repos / "clip"
+            export_python = Path(os.environ.get(
+                "EDGEFORGE_YOLO_WORLD_PYTHON",
+                str(Path(sys.prefix).parent / ".edgeforge-yolo-world-export-venv" /
+                    "bin" / "python")))
+            if not export_python.is_file():
+                raise RuntimeError(
+                    f"缺少 YOLO-World 独立导出环境: {export_python}；请重新运行 scripts/setup_wsl.sh")
+            progress(24, "从 YOLO-World V2-S 官方 checkpoint 导出检测器与 CLIP 文本编码器")
+            self._run([
+                str(export_python), str(self.root / "server" / "yolo_world_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--assets", str(assets),
+                "--labels", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
+                                "yolo_world" / "model" / "detect_classes.txt"),
+                "--detector", str(detector), "--text", str(text_model),
+                "--tokenizer-output", str(work / "tokenizer"),
+                "--metadata", str(work / "export_metadata.json"),
+            ], repo)
+            return {"detector": detector, "text": text_model}
         family = self.ROCKCHIP_REPOS[architecture]
         metadata = work / "export_metadata.json"
         progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")
