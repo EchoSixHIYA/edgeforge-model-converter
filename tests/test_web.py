@@ -19,7 +19,12 @@ from sdk_template.edgeforge_sdk.model import (
 def test_health_and_catalog(tmp_path):
     app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
     client = app.test_client()
-    assert client.get("/health").status_code == 200
+    health_response = client.get("/health")
+    assert health_response.status_code == 200
+    health = health_response.get_json()
+    assert {"ready", "rknn_toolkit2", "model_zoo"}.issubset(health["rockchip"])
+    assert {"ready", "tpu_mlir", "sophon_demo", "sophon_sail"}.issubset(health["sophon"])
+    assert "sophon_demo" in health
     data = client.get("/api/catalog").get_json()
     assert len(data["models"]) >= 28
     assert {"rk3588", "rk3566"}.issubset(data["platforms"])
@@ -58,6 +63,14 @@ def test_sdk_docs_and_example_image_are_shipped(tmp_path):
     assert "bash install.sh" in sdk_readme
     assert "RKNN-Toolkit-Lite2 2.3.2" in sdk_readme
     assert "不提供自动识别入口" in sdk_readme
+
+
+def test_frontend_script_has_valid_sophon_health_copy():
+    script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+    assert "health.sophon?.ready" in script
+    assert "SOPHGO 环境就绪" in script
+    assert "转换环境组件待安装" in script
+    assert "鐜" not in script
 
 
 def test_verified_mobilenet_checkpoint_is_accepted(tmp_path):

@@ -17,6 +17,7 @@ function syncOptions() {
   const formats = JSON.parse(option.dataset.formats || '[]');
   const size = support.input_size || JSON.parse(option.dataset.size || '[640,640]');
   const precisions = support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
+
   [...arch.options].forEach(item => {
     const itemSupport = JSON.parse(item.dataset.vendorSupport || '{}');
     item.hidden = !itemSupport[selectedVendor]?.available;
@@ -26,15 +27,18 @@ function syncOptions() {
     if (next) arch.value = next.value;
     return syncOptions();
   }
+
   [...platform.options].forEach(item => item.hidden = !allowed.includes(item.value));
   if (!allowed.includes(platform.value)) platform.value = allowed[0];
   [...precision.options].forEach(item => item.hidden = !precisions.includes(item.value));
   if (!precisions.includes(precision.value)) precision.value = precisions[0];
+
   modelFile.accept = formats.join(',');
   document.querySelector('#sourceHint').textContent =
     `接受原始权重 ${formats.join(' / ').toUpperCase()}，友好 ONNX 由架构专用导出器在服务内部生成`;
   document.querySelector('#inputShape').value = `1, 3, ${size[1] || size[0]}, ${size[0]}`;
-  document.querySelector('#calibrationBox').classList.toggle('hidden', precision.value === 'fp');
+  document.querySelector('#calibrationBox').classList.toggle(
+    'hidden', !['i8', 'u8'].includes(precision.value));
 }
 
 vendor.addEventListener('change', syncOptions);
@@ -71,13 +75,13 @@ drop.addEventListener('drop', event => {
 form.addEventListener('submit', async event => {
   event.preventDefault();
   errorBox.textContent = '';
-  if (precision.value !== 'fp' && !calibration.files.length) {
+  if (['i8', 'u8'].includes(precision.value) && !calibration.files.length) {
     errorBox.textContent = 'INT8 / UINT8 转换必须上传量化校准图片 ZIP。';
     return;
   }
   const button = document.querySelector('#submitButton');
   button.disabled = true;
-  button.querySelector('span').textContent = '正在上传权重…';
+  button.querySelector('span').textContent = '正在上传权重...';
   try {
     const response = await fetch('/api/tasks', {method: 'POST', body: new FormData(form)});
     const data = await response.json();
@@ -103,8 +107,9 @@ function escapeHtml(value) {
   element.textContent = String(value ?? '');
   return element.innerHTML;
 }
+
 function formatTime(value) {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', {hour12: false});
 }
@@ -167,12 +172,20 @@ async function loadTasks() {
 document.querySelector('#refresh').addEventListener('click', loadTasks);
 fetch('/health').then(response => response.json()).then(health => {
   const element = document.querySelector('#health');
-  if (health.rknn_toolkit2 && health.model_zoo) {
+  const rockchipReady = Boolean(health.rockchip?.ready ?? (health.rknn_toolkit2 && health.model_zoo));
+  const sophonReady = Boolean(health.sophon?.ready);
+  if (rockchipReady && sophonReady) {
     element.classList.add('ready');
-    element.querySelector('span').textContent = '转换环境就绪';
+    element.querySelector('span').textContent = 'Rockchip / SOPHGO 环境就绪';
+  } else if (rockchipReady) {
+    element.classList.add('ready');
+    element.querySelector('span').textContent = 'Rockchip 环境就绪';
+  } else if (sophonReady) {
+    element.classList.add('ready');
+    element.querySelector('span').textContent = 'SOPHGO 环境就绪';
   } else {
     element.classList.add('warn');
-    element.querySelector('span').textContent = '环境组件待安装';
+    element.querySelector('span').textContent = '转换环境组件待安装';
   }
 }).catch(() => {});
 loadTasks();

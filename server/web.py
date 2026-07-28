@@ -39,10 +39,28 @@ def create_app(test_config=None):
             sail = True
         except ImportError:
             pass
-        return jsonify(status="ok", rknn_toolkit2=toolkit,
-                       tpu_mlir=bool(shutil.which("model_transform.py") and shutil.which("model_deploy.py")),
-                       sophon_sail=sail,
-                       model_zoo=pipeline.model_zoo.is_dir(), yolov10_exporter=pipeline.yolov10_repo.is_dir())
+        model_transform = bool(shutil.which("model_transform.py"))
+        model_deploy = bool(shutil.which("model_deploy.py"))
+        model_zoo = pipeline.model_zoo.is_dir()
+        sophon_demo = pipeline.sophon_demo.is_dir()
+        rockchip = {
+            "ready": bool(toolkit and model_zoo),
+            "rknn_toolkit2": toolkit,
+            "model_zoo": model_zoo,
+            "yolov10_exporter": pipeline.yolov10_repo.is_dir(),
+        }
+        sophon = {
+            "ready": bool(model_transform and model_deploy and sophon_demo),
+            "tpu_mlir": bool(model_transform and model_deploy),
+            "model_transform": model_transform,
+            "model_deploy": model_deploy,
+            "sophon_demo": sophon_demo,
+            "sophon_sail": sail,
+        }
+        return jsonify(status="ok", rockchip=rockchip, sophon=sophon,
+                       rknn_toolkit2=toolkit, tpu_mlir=sophon["tpu_mlir"],
+                       sophon_sail=sail, sophon_demo=sophon_demo,
+                       model_zoo=model_zoo, yolov10_exporter=rockchip["yolov10_exporter"])
 
     @app.get("/api/catalog")
     def catalog():
