@@ -26,19 +26,22 @@ def test_health_and_catalog(tmp_path):
     assert {"ready", "tpu_mlir", "sophon_demo", "sophon_sail"}.issubset(health["sophon"])
     assert "sophon_demo" in health
     data = client.get("/api/catalog").get_json()
-    assert len(data["models"]) >= 28
+    assert len(data["models"]) >= 33
     assert {"rk3588", "rk3566"}.issubset(data["platforms"])
     assert "bm1684x" in data["platforms"]
     assert {vendor["id"] for vendor in data["vendors"]} >= {"rockchip", "sophon"}
     assert {backend["id"] for backend in data["backends"]} >= {"rknn", "bmodel"}
-    assert len(data["models"]) == 28
+    assert len(data["models"]) == 33
     assert all("status" in model and "blocker" in model for model in data["models"])
     assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684x"]
     assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
     assert BY_ID["yolox"]["vendor_support"]["sophon"]["weight_formats"] == [".pth"]
+    assert BY_ID["yolov9"]["vendor_support"]["sophon"]["blocker"] == ""
+    assert BY_ID["yolov9"]["vendor_support"]["rockchip"]["available"] is False
     assert {model["id"] for model in data["models"]} == {
         "mobilenet", "resnet", "yolov5", "yolov6", "yolov7", "yolov8", "yolov8_obb",
-        "yolov10", "yolo11", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
+        "yolov8_cls", "yolov9", "yolov9_seg", "yolov10", "yolo11", "yolo11_obb",
+        "yolov12", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
         "yolov5_seg", "yolov8_seg", "ppseg", "mobilesam", "retinaface", "lprnet", "ppocr",
         "lite_transformer", "clip", "wav2vec2", "whisper", "zipformer", "yamnet", "mms_tts",
     }
@@ -114,6 +117,21 @@ def test_sophon_yolov8_obb_accepts_vendor_specific_size(tmp_path):
     })
     assert response.status_code == 202
     assert response.get_json()["backend"] == "bmodel"
+
+
+def test_sophon_only_yolo_model_does_not_open_rockchip_entry(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    client = app.test_client()
+    sophon = client.post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolov9", "platform": "bm1684x", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    rockchip = client.post("/api/tasks", data={
+        "vendor": "rockchip", "architecture": "yolov9", "platform": "rk3588", "precision": "fp",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert sophon.status_code == 202
+    assert rockchip.status_code == 400
 
 
 def test_sophon_uses_vendor_specific_upload_formats(tmp_path):
@@ -358,3 +376,7 @@ def test_automatic_edge_model_entry_is_not_public():
     import sdk_template.edgeforge_sdk as sdk
 
     assert not hasattr(sdk, "EdgeModel")
+    assert sdk.YoloV9.architecture == "yolov9"
+    assert sdk.YoloV9Seg.architecture == "yolov9_seg"
+    assert sdk.Yolo11Obb.architecture == "yolo11_obb"
+    assert sdk.YoloV12.architecture == "yolov12"

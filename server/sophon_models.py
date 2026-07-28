@@ -33,6 +33,21 @@ SOPHON_MODELS = {
         "input_size": [1024, 1024], "weight_suffixes": (".pt",),
         "notes": "SOPHGO path maps to sophon-demo YOLOv8_plus_obb with 1024 input.",
     },
+    "yolov8_cls": {
+        "sample": "YOLOv8_plus_cls", "bmodel_name": "yolov8s-cls",
+        "input_size": [224, 224], "weight_suffixes": (".pt",),
+        "notes": "SOPHGO path maps to sophon-demo YOLOv8_plus_cls.",
+    },
+    "yolov9": {
+        "sample": "YOLOv9_det", "bmodel_name": "yolov9",
+        "input_size": [640, 640], "weight_suffixes": (".pt",),
+        "notes": "SOPHGO path maps to sophon-demo YOLOv9_det.",
+    },
+    "yolov9_seg": {
+        "sample": "YOLOv9_seg", "bmodel_name": "yolov9-seg",
+        "input_size": [640, 640], "weight_suffixes": (".pt",),
+        "notes": "SOPHGO path maps to sophon-demo YOLOv9_seg.",
+    },
     "yolov10": {
         "sample": "YOLOv10", "bmodel_name": "yolov10",
         "input_size": [640, 640], "weight_suffixes": (".pt",),
@@ -42,6 +57,16 @@ SOPHON_MODELS = {
         "sample": "YOLOv11_det", "bmodel_name": "yolo11",
         "input_size": [640, 640], "weight_suffixes": (".pt",),
         "notes": "SOPHGO path maps to sophon-demo YOLOv11_det.",
+    },
+    "yolo11_obb": {
+        "sample": "YOLOv11_obb", "bmodel_name": "yolo11-obb",
+        "input_size": [1024, 1024], "weight_suffixes": (".pt",),
+        "notes": "SOPHGO path maps to sophon-demo YOLOv11_obb.",
+    },
+    "yolov12": {
+        "sample": "YOLOv12_det", "bmodel_name": "yolov12",
+        "input_size": [640, 640], "weight_suffixes": (".pt",),
+        "notes": "SOPHGO path maps to sophon-demo YOLOv12_det.",
     },
     "yolox": {
         "sample": "YOLOX", "bmodel_name": "yolox",

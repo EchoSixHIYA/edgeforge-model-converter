@@ -18,11 +18,13 @@ from .sophon_models import sophon_model
 
 SDK_CLASSES = {
     "yolov5": "YoloV5", "yolov5_seg": "YoloV5Seg", "yolov6": "YoloV6", "yolov7": "YoloV7",
-    "yolov8": "YoloV8", "yolov8_pose": "YoloV8Pose", "yolov8_obb": "YoloV8Obb",
-    "yolov8_seg": "YoloV8Seg",
+    "yolov8": "YoloV8", "yolov8_cls": "YoloV8Cls", "yolov8_pose": "YoloV8Pose",
+    "yolov8_obb": "YoloV8Obb", "yolov8_seg": "YoloV8Seg",
+    "yolov9": "YoloV9", "yolov9_seg": "YoloV9Seg",
     "yolov10": "YoloV10",
     "yolox": "YoloX",
-    "yolo11": "Yolo11", "mobilenet": "MobileNetV2", "resnet": "ResNet50",
+    "yolo11": "Yolo11", "yolo11_obb": "Yolo11Obb", "yolov12": "YoloV12",
+    "mobilenet": "MobileNetV2", "resnet": "ResNet50",
     "retinaface": "RetinaFace",
     "ppyoloe": "PPYoloE",
     "lprnet": "LPRNet",

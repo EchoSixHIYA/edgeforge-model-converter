@@ -76,8 +76,13 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolov8_seg", ".pt", "sophon")
     assert exporter.supports("yolov8_pose", ".pt", "sophon")
     assert exporter.supports("yolov8_obb", ".pt", "sophon")
+    assert exporter.supports("yolov8_cls", ".pt", "sophon")
+    assert exporter.supports("yolov9", ".pt", "sophon")
+    assert exporter.supports("yolov9_seg", ".pt", "sophon")
     assert exporter.supports("yolov10", ".pt", "sophon")
     assert exporter.supports("yolo11", ".pt", "sophon")
+    assert exporter.supports("yolo11_obb", ".pt", "sophon")
+    assert exporter.supports("yolov12", ".pt", "sophon")
     assert exporter.supports("yolox", ".pth", "sophon")
     assert exporter.supports("yolo_world", ".pth", "sophon")
     assert not exporter.supports("yolov8", ".onnx", "sophon")
@@ -92,6 +97,7 @@ def test_sophon_model_registry_drives_public_yolo_support():
         assert support["weight_formats"] == list(cfg["weight_suffixes"])
         assert support["notes"] == cfg["notes"]
     assert BModelBackend._model_name("yolov8_obb", "fallback") == SOPHON_MODELS["yolov8_obb"]["bmodel_name"]
+    assert BModelBackend._model_name("yolo11_obb", "fallback") == SOPHON_MODELS["yolo11_obb"]["bmodel_name"]
 
 
 def test_bmodel_backend_invokes_tpu_mlir_for_fp16(monkeypatch, tmp_path):

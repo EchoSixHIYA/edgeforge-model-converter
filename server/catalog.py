@@ -36,8 +36,13 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
           color_order="rgb",
           notes="", weight_formats=(), exporter_ready=False, postprocess_ready=False,
           verified=False, blocker="", sophon_platforms=None, sophon_precisions=None,
-          sophon_verified=False, sophon_notes="", sophon_input_size=None):
-    available = exporter_ready and postprocess_ready and verified
+          sophon_verified=False, sophon_notes="", sophon_input_size=None,
+          rockchip_available=None, sophon_available=None):
+    base_available = exporter_ready and postprocess_ready and verified
+    rockchip_ready = base_available if rockchip_available is None else bool(rockchip_available)
+    sophon_ready = ((exporter_ready and postprocess_ready) if sophon_available is None
+                    else bool(sophon_available))
+    available = base_available or (bool(sophon_platforms) and sophon_ready)
     if available:
         status = "available"
         status_label = "可转换"
@@ -53,23 +58,22 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
     vendor_support = {
         "rockchip": {
             "backend": "rknn", "format": "RKNN", "platforms": list(platforms or _STANDARD),
-            "precisions": list(precisions), "available": available, "verified": verified,
+            "precisions": list(precisions), "available": rockchip_ready, "verified": verified,
             "weight_formats": list(weight_formats),
-            "status": status, "blocker": blocker or ("" if available else status_label),
+            "status": status, "blocker": blocker or ("" if rockchip_ready else status_label),
             "notes": notes,
         }
     }
     if sophon_platforms:
         sophon_cfg = SOPHON_MODELS.get(key, {})
-        sophon_available = exporter_ready and postprocess_ready
         vendor_support["sophon"] = {
             "backend": "bmodel", "format": "BModel", "platforms": list(sophon_platforms),
             "precisions": list(sophon_precisions or sophon_cfg.get("precisions", ("f16", "i8"))),
             "input_size": list(sophon_input_size or sophon_cfg.get("input_size") or input_size or [640, 640]),
             "weight_formats": list(sophon_cfg.get("weight_suffixes", weight_formats)),
-            "available": sophon_available, "verified": bool(sophon_verified),
+            "available": sophon_ready, "verified": bool(sophon_verified),
             "status": "verification_required" if not sophon_verified else "available",
-            "blocker": "" if sophon_available else "SOPHGO exporter/backend is not registered",
+            "blocker": "" if sophon_ready else "SOPHGO exporter/backend is not registered",
             "notes": sophon_notes or sophon_cfg.get("notes", ""),
         }
     return {
@@ -208,6 +212,29 @@ CATALOG = [
           verified=True, notes="接受包含 saved_model.pb/variables 的 TensorFlow SavedModel ZIP；显式 YAMNet 处理 3 秒 16 kHz 波形；RK3588 FP 与官方 test.wav Top-1 Animal 已通过。"),
     _item("mms_tts", "MMS TTS", "语音合成", platforms=_RK2, precisions=("fp",),
           blocker="编码器/解码器多模型、tokenizer 与波形生成尚未接入"),
+    _item("yolov8_cls", "YOLOv8 Cls", "图像分类", example="yolov8_cls", source="pt",
+          input_size=[224, 224], precisions=("fp",), weight_formats=(".pt",),
+          exporter_ready=True, postprocess_ready=True, verified=False,
+          rockchip_available=False, sophon_available=True, sophon_platforms=SOPHON_PLATFORMS,
+          notes="Rockchip 链路暂未开启；SOPHGO 对齐 sophon-demo YOLOv8_plus_cls，待 BM1684X 板端验收。"),
+    _item("yolov9", "YOLOv9", "目标检测", source="pt", input_size=[640, 640],
+          weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=False,
+          rockchip_available=False, sophon_available=True, sophon_platforms=SOPHON_PLATFORMS,
+          notes="Rockchip 链路暂未开启；SOPHGO 对齐 sophon-demo YOLOv9_det，待 BM1684X 板端验收。"),
+    _item("yolov9_seg", "YOLOv9 Seg", "实例分割", example="yolov9_seg", source="pt",
+          input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
+          exporter_ready=True, postprocess_ready=True, verified=False,
+          rockchip_available=False, sophon_available=True, sophon_platforms=SOPHON_PLATFORMS,
+          notes="Rockchip 链路暂未开启；SOPHGO 对齐 sophon-demo YOLOv9_seg，复用 YOLOv8 Seg SDK 后处理，待 BM1684X 板端验收。"),
+    _item("yolo11_obb", "YOLO11 OBB", "旋转框检测", example="yolo11_obb", source="pt",
+          input_size=[1024, 1024], precisions=("fp", "i8"), weight_formats=(".pt",),
+          exporter_ready=True, postprocess_ready=True, verified=False,
+          rockchip_available=False, sophon_available=True, sophon_platforms=SOPHON_PLATFORMS,
+          notes="Rockchip 链路暂未开启；SOPHGO 对齐 sophon-demo YOLOv11_obb，复用 OBB SDK 后处理，待 BM1684X 板端验收。"),
+    _item("yolov12", "YOLOv12", "目标检测", source="pt", input_size=[640, 640],
+          weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=False,
+          rockchip_available=False, sophon_available=True, sophon_platforms=SOPHON_PLATFORMS,
+          notes="Rockchip 链路暂未开启；SOPHGO 对齐 sophon-demo YOLOv12_det，待 BM1684X 板端验收。"),
 ]
 
 _TASK_CONTRACTS = {
@@ -218,8 +245,13 @@ _TASK_CONTRACTS = {
     "yolov7": ("image", "object_detection", "Detection"),
     "yolov8": ("image", "object_detection", "Detection"),
     "yolov8_obb": ("image", "oriented_object_detection", "OrientedDetection"),
+    "yolov8_cls": ("image", "classification", "Classification"),
+    "yolov9": ("image", "object_detection", "Detection"),
+    "yolov9_seg": ("image", "instance_segmentation", "InstanceMask"),
     "yolov10": ("image", "object_detection", "Detection"),
     "yolo11": ("image", "object_detection", "Detection"),
+    "yolo11_obb": ("image", "oriented_object_detection", "OrientedDetection"),
+    "yolov12": ("image", "object_detection", "Detection"),
     "yolox": ("image", "object_detection", "Detection"),
     "ppyoloe": ("image", "object_detection", "Detection"),
     "yolo_world": ("image+text", "open_vocabulary_detection", "Detection"),

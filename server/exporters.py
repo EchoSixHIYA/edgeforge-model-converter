@@ -358,8 +358,11 @@ class ArchitectureExporters:
                 "-n", variant, "-c", str(source.resolve()), "--no-onnxsim",
             ], repo)
             return output
-        if architecture in {"yolov8", "yolov8_seg", "yolov8_pose", "yolov8_obb", "yolo11"}:
-            repo = self.repos / ("yolo11" if architecture == "yolo11" else "yolov8")
+        if architecture in {
+            "yolov8", "yolov8_seg", "yolov8_pose", "yolov8_obb", "yolov8_cls",
+            "yolov9", "yolov9_seg", "yolo11", "yolo11_obb", "yolov12",
+        }:
+            repo = self.repos / ("yolo11" if architecture in {"yolo11", "yolo11_obb", "yolov12"} else "yolov8")
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),

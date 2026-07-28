@@ -380,7 +380,7 @@ class _ModelBase:
             return [Pose(tuple(float(x) for x in box), float(score), 0, label,
                          tuple(tuple(float(x) for x in point) for point in points))
                     for box, score, points in zip(boxes, scores, keypoints)]
-        if task_type == "oriented_object_detection" and architecture == "yolov8_obb":
+        if task_type == "oriented_object_detection" and architecture in {"yolov8_obb", "yolo11_obb"}:
             rects, classes, scores = _postprocess_yolov8_obb(
                 outputs, tuple(self.config["input_size"]),
                 len(self.config.get("labels", [])) or 15, confidence, iou)
@@ -396,7 +396,7 @@ class _ModelBase:
                     tuple(tuple(float(x) for x in point) for point in points), float(score), int(cls),
                     labels[int(cls)] if int(cls) < len(labels) else str(int(cls))))
             return results
-        if task_type == "instance_segmentation" and architecture in {"yolov5_seg", "yolov8_seg"}:
+        if task_type == "instance_segmentation" and architecture in {"yolov5_seg", "yolov8_seg", "yolov9_seg"}:
             labels = self.config.get("labels", [])
             if architecture == "yolov5_seg":
                 anchors = self.config.get("anchors")
@@ -419,7 +419,7 @@ class _ModelBase:
         if task_type != "object_detection":
             raise NotImplementedError(
                 f"{task_type} 必须使用自己的结构化结果和后处理器，不能套用 Detection")
-        supported = {"yolov5", "yolov6", "yolov7", "yolov8", "yolov10", "yolo11", "yolox", "ppyoloe"}
+        supported = {"yolov5", "yolov6", "yolov7", "yolov8", "yolov9", "yolov10", "yolo11", "yolov12", "yolox", "ppyoloe"}
         if architecture not in supported:
             raise NotImplementedError(
                 f"{architecture} 暂只提供 infer_raw()；该任务类型的结构化后处理器尚未注册")
@@ -1289,6 +1289,18 @@ class YoloV8Seg(_ModelBase):
     architecture = "yolov8_seg"
 
 
+class YoloV8Cls(_ModelBase):
+    architecture = "yolov8_cls"
+
+
+class YoloV9(_ModelBase):
+    architecture = "yolov9"
+
+
+class YoloV9Seg(_ModelBase):
+    architecture = "yolov9_seg"
+
+
 class YoloV5Seg(_ModelBase):
     architecture = "yolov5_seg"
 
@@ -1303,6 +1315,14 @@ class YoloV10(_ModelBase):
 
 class Yolo11(_ModelBase):
     architecture = "yolo11"
+
+
+class Yolo11Obb(_ModelBase):
+    architecture = "yolo11_obb"
+
+
+class YoloV12(_ModelBase):
+    architecture = "yolov12"
 
 
 class MobileNetV2(_ModelBase):
