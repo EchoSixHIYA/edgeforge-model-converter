@@ -217,6 +217,21 @@ def test_sophon_setup_script_documents_required_tools():
     assert "sophon.sail" in body
 
 
+def test_board_sophon_smoke_script_selects_smallest_bmodel():
+    script = Path(__file__).resolve().parents[1] / "scripts" / "board_sophon_smoke.sh"
+    body = script.read_text(encoding="utf-8")
+    assert "python3 -m venv --system-site-packages" in body
+    assert "--without-pip" in body
+    assert ".edgeforge-board-smoke-venv" in body
+    assert "find \"$SEARCH_ROOT\" -type f -name '*.bmodel'" in body
+    assert "find /opt/sophon \"$SEARCH_ROOT\"" in body
+    assert "sort -n" in body
+    assert "\"$BMRT_TEST\" --bmodel \"$BMODEL\"" in body
+    assert "import sophon.sail" in body
+    assert "sail.Engine" in body
+    assert "engine.process" in body
+
+
 def test_sdk_installer_branches_by_compiled_model_type():
     script = Path(__file__).resolve().parents[1] / "sdk_template" / "install.sh"
     body = script.read_text(encoding="utf-8")

@@ -92,6 +92,24 @@ python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip
 python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip --require-bmrt
 ```
 
+### 板端最小 BModel smoke
+
+如果 BM1684X 板端已经有若干 `.bmodel`，可先用仓库脚本选择体积最小的模型做运行时冒烟：
+
+```bash
+bash scripts/board_sophon_smoke.sh /home/linaro/3588_edge
+```
+
+脚本会在指定项目目录下创建 `.edgeforge-board-smoke-venv`，优先使用 `--system-site-packages` 复用板端官方安装的 SAIL；如果板端缺少 `ensurepip/python3-venv` 的完整能力，会自动降级为 `--without-pip` 的项目虚拟环境，不污染系统解释器。随后脚本会检查 `bmrt_test`、`sophon.sail`，在指定目录下查找最小 `.bmodel` 并执行：
+
+```bash
+bmrt_test --bmodel <smallest.bmodel> --loopnum 1
+```
+
+`bmrt_test` 不在 `PATH` 时，脚本会继续在 `/opt/sophon` 和搜索目录下查找。`bmrt_test` 通过后，还会用同一项目虚拟环境执行 SOPHON-SAIL `Engine(...).process(...)`，打印输入/输出 shape，验证 SDK 依赖的高层 Python 运行时。
+
+如果 SSH 已开启，可以从开发机把脚本传到板端后运行；若仍提示找不到 `bmrt_test` 或 `sophon.sail`，需要先安装/进入 SOPHGO Runtime/SAIL 官方环境。
+
 脚本会检查 `manifest.json`、`model/config.json`、`.bmodel` 文件和多组件 `model_files`，并在 `bmrt_test` 存在时加载每个 BModel。
 
 ## 版本管理
