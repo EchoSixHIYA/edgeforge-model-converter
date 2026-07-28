@@ -40,7 +40,7 @@ YOLO-World V2 在官方样例中包含 detector 与 `clip_text` 两个 ONNX/BMod
 - `bf16` -> `--quantize BF16`
 - `i8` -> `--quantize INT8`
 
-INT8 必须上传校准图片 ZIP。服务端会解压并生成 `dataset.txt`，后端把它传给 `run_calibration.py --dataset`。
+INT8 必须上传校准图片 ZIP。服务端会同时生成两种校准输入：`dataset.txt` 继续供 RKNN 使用；SOPHGO 后端把解压后的图片目录传给 `run_calibration.py --dataset`，与 `sophon-demo` 官方脚本保持一致。
 
 ## 环境要求
 

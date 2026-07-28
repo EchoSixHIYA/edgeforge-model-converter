@@ -83,6 +83,8 @@ class Pipeline:
                 "dataset": str(dataset) if dataset else None, "catalog": effective_cfg,
                 "component": component,
             }
+            if dataset:
+                options["calibration_dir"] = str(work / "calibration")
             if cfg["id"] == "mobilesam" and component == "decoder":
                 options["fuse_normalization"] = False
             if cfg["id"] == "ppocr" and component == "rec":

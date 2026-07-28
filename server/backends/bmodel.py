@@ -62,14 +62,19 @@ class BModelBackend(ConversionBackend):
         calibration_table = None
         if quantize == "INT8":
             self._require_tool("run_calibration.py")
-            dataset = options.get("dataset")
-            if not dataset:
+            calibration_source = options.get("calibration_dir") or options.get("dataset")
+            if not calibration_source:
                 raise ValueError("SOPHGO INT8 conversion requires a calibration image ZIP")
+            calibration_source = Path(calibration_source).resolve()
+            if not calibration_source.is_dir():
+                raise ValueError(
+                    "SOPHGO INT8 calibration requires the extracted image directory; "
+                    f"got {calibration_source}")
             calibration_table = work / f"{model_name}_cali_table"
             progress(65, "Running TPU-MLIR INT8 calibration")
             self._run([
                 "run_calibration.py", str(mlir),
-                "--dataset", str(Path(dataset).resolve()),
+                "--dataset", str(calibration_source),
                 "--input_num", str(int(options.get("calibration_input_num", 128))),
                 "-o", str(calibration_table),
             ], work)

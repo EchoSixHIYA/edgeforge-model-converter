@@ -112,6 +112,8 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     onnx = tmp_path / "detector.onnx"
     out = tmp_path / "detector.bmodel"
     dataset = tmp_path / "dataset.txt"
+    calibration_dir = tmp_path / "calibration"
+    calibration_dir.mkdir()
     onnx.write_bytes(b"onnx")
     dataset.write_text("image.jpg\n", encoding="utf-8")
     calls = []
@@ -128,13 +130,33 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
     BModelBackend().convert(onnx, out, {
         "platform": "bm1684x", "precision": "i8", "dataset": str(dataset),
+        "calibration_dir": str(calibration_dir),
         "catalog": {"id": "yolo_world", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
         "component": "detector",
     }, lambda *_: None)
 
     assert [call[0] for call in calls] == ["model_transform.py", "run_calibration.py", "model_deploy.py"]
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640],[1,80,512]]"
+    assert calls[1][calls[1].index("--dataset") + 1] == str(calibration_dir.resolve())
     assert "--calibration_table" in calls[-1]
+
+
+def test_bmodel_backend_rejects_dataset_txt_for_int8(monkeypatch, tmp_path):
+    onnx = tmp_path / "model.onnx"
+    dataset = tmp_path / "dataset.txt"
+    onnx.write_bytes(b"onnx")
+    dataset.write_text("image.jpg\n", encoding="utf-8")
+    monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr("server.backends.bmodel.subprocess.run", lambda *_, **__: type("R", (), {
+        "returncode": 0, "stdout": "", "stderr": "",
+    })())
+
+    with pytest.raises(ValueError, match="extracted image directory"):
+        BModelBackend().convert(onnx, tmp_path / "model.bmodel", {
+            "platform": "bm1684x", "precision": "i8", "dataset": str(dataset),
+            "catalog": {"id": "yolov8", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
+            "component": "model",
+        }, lambda *_: None)
 
 
 def test_bmodel_backend_uses_vendor_input_size_for_obb(monkeypatch, tmp_path):
