@@ -73,6 +73,22 @@ with YoloV8("model", device_id=0) as model:
     print([item.as_dict() for item in results])
 ```
 
+## 验收命令
+
+转换完成后，可先在任意机器做包结构检查：
+
+```bash
+python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip
+```
+
+在 BM1684X 设备或已进入 SOPHGO Runtime 环境的机器上，要求同时执行 `bmrt_test`：
+
+```bash
+python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip --require-bmrt
+```
+
+脚本会检查 `manifest.json`、`model/config.json`、`.bmodel` 文件和多组件 `model_files`，并在 `bmrt_test` 存在时加载每个 BModel。
+
 ## 版本管理
 
 `vendor/sophon-demo` 不纳入 git。官方仓库只作为外部参考与本地导出依赖，项目版本库仅提交 EdgeForge 的适配层、文档和测试。

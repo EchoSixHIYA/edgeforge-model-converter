@@ -1,4 +1,8 @@
 from pathlib import Path
+import json
+import subprocess
+import sys
+import zipfile
 
 import pytest
 
@@ -215,6 +219,43 @@ def test_sdk_installer_branches_by_compiled_model_type():
     assert 'if ((${#RKNN_MODELS[@]})); then' in body
     assert 'if ((${#BMODELS[@]})); then' in body
     assert "sophon.sail" in body
+
+
+def test_smoke_bmodel_validates_minimal_sdk_zip(tmp_path):
+    package = tmp_path / "sdk.zip"
+    with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("model/model.bmodel", b"bmodel")
+        archive.writestr("model/config.json", '{"vendor":"sophon","backend":"bmodel","architecture":"yolov8"}')
+        archive.writestr("manifest.json", '{"vendor":"sophon","backend":"bmodel"}')
+
+    result = subprocess.run([
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "scripts" / "smoke_bmodel.py"),
+        str(package),
+    ], text=True, capture_output=True)
+
+    assert result.returncode == 0
+    assert '"status": "ok"' in result.stdout
+    assert "bmrt_test skipped" in result.stdout
+
+
+def test_smoke_bmodel_rejects_missing_multi_component(tmp_path):
+    bundle = tmp_path / "bundle"
+    (bundle / "model").mkdir(parents=True)
+    (bundle / "model" / "detector.bmodel").write_bytes(b"bmodel")
+    (bundle / "model" / "config.json").write_text(json.dumps({
+        "vendor": "sophon", "backend": "bmodel", "architecture": "yolo_world",
+        "model_files": {"detector": "detector.bmodel", "text": "text.bmodel"},
+    }), encoding="utf-8")
+
+    result = subprocess.run([
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "scripts" / "smoke_bmodel.py"),
+        str(bundle),
+    ], text=True, capture_output=True)
+
+    assert result.returncode != 0
+    assert "model_files missing" in result.stderr
 
 
 def test_retinaface_decodes_box_and_five_landmarks():

@@ -64,6 +64,13 @@ bash scripts/setup_sophon.sh
 
 脚本会准备 `vendor/sophon-demo` 并检查 `model_transform.py`、`model_deploy.py`、`sophon.sail` 是否可用；已有官方仓库时可用 `SOPHON_DEMO=/path/to/sophon-demo bash scripts/setup_sophon.sh`。
 
+BModel 转换包可用固定 smoke 命令验收：
+
+```bash
+python scripts/smoke_bmodel.py path/to/sdk.zip
+python scripts/smoke_bmodel.py path/to/sdk.zip --require-bmrt
+```
+
 ## 测试
 
 ```bash
