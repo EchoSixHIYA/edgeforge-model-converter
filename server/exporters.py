@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .catalog import BY_ID
+from .sophon_models import sophon_model
 
 
 class ArchitectureExporters:
@@ -34,14 +35,8 @@ class ArchitectureExporters:
 
     def supports(self, architecture, suffix, vendor):
         if vendor == "sophon":
-            if architecture == "yolox":
-                return suffix.lower() == ".pth"
-            if architecture == "yolo_world":
-                return suffix.lower() == ".pth"
-            return suffix.lower() == ".pt" and architecture in {
-                "yolov5", "yolov7", "yolov8", "yolov8_seg", "yolov8_pose",
-                "yolov8_obb", "yolov10", "yolo11",
-            }
+            cfg = sophon_model(architecture)
+            return bool(cfg and suffix.lower() in cfg["weight_suffixes"])
         if vendor != "rockchip":
             return False
         if architecture in {"mobilenet", "resnet", "yolox", "retinaface", "lprnet"}:
@@ -318,8 +313,9 @@ class ArchitectureExporters:
     def _export_sophon_yolo(self, source, work, architecture, progress, cfg):
         metadata = work / "export_metadata.json"
         output = work / "model.onnx"
+        sophon_cfg = sophon_model(architecture) or {}
         support = cfg.get("vendor_support", {}).get("sophon", {})
-        input_size = support.get("input_size") or cfg.get("input_size") or [640, 640]
+        input_size = support.get("input_size") or sophon_cfg.get("input_size") or cfg.get("input_size") or [640, 640]
         imgsz = str(int(input_size[0]))
         progress(24, f"Exporting {architecture.upper()} to SOPHGO-friendly ONNX")
         if architecture == "yolo_world":
@@ -363,9 +359,7 @@ class ArchitectureExporters:
             ], repo)
             return output
         if architecture in {"yolov8", "yolov8_seg", "yolov8_pose", "yolov8_obb", "yolo11"}:
-            repo = self.repos / ("yolov8" if architecture == "yolov8" else "yolo11")
-            if architecture.startswith("yolov8_"):
-                repo = self.repos / "yolov8"
+            repo = self.repos / ("yolo11" if architecture == "yolo11" else "yolov8")
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),

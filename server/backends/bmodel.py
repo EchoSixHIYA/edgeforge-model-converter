@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from .base import ConversionBackend
+from ..sophon_models import sophon_model
 
 
 class BModelBackend(ConversionBackend):
@@ -102,18 +103,8 @@ class BModelBackend(ConversionBackend):
     def _model_name(architecture, fallback, component="model"):
         if architecture == "yolo_world" and component == "text":
             return "clip_text"
-        return {
-            "yolov5": "yolov5",
-            "yolov7": "yolov7",
-            "yolov8": "yolov8",
-            "yolov8_seg": "yolov8s-seg",
-            "yolov8_pose": "yolov8s-pose",
-            "yolov8_obb": "yolov8s-obb",
-            "yolov10": "yolov10",
-            "yolo11": "yolo11",
-            "yolox": "yolox",
-            "yolo_world": "yoloworld_v2",
-        }.get(architecture, fallback)
+        cfg = sophon_model(architecture)
+        return cfg.get("bmodel_name", fallback) if cfg else fallback
 
     @staticmethod
     def _input_shapes(architecture, input_size, component="model"):

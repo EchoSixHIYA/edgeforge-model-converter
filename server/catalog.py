@@ -6,11 +6,13 @@ workbench; ``available`` means the complete EdgeForge contract (exporter,
 structured SDK post-processing, and real acceptance) has been met.
 """
 
+from .sophon_models import SOPHON_PLATFORMS, SOPHON_MODELS
+
+
 ROCKCHIP_PLATFORMS = [
     "rk3562", "rk3566", "rk3568", "rk3576", "rk3588", "rv1126b",
     "rv1103", "rv1106", "rv1109", "rv1126", "rk1808", "rk3399pro",
 ]
-SOPHON_PLATFORMS = ["bm1684x"]
 PLATFORMS = ROCKCHIP_PLATFORMS + SOPHON_PLATFORMS
 
 VENDORS = [
@@ -57,15 +59,16 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
         }
     }
     if sophon_platforms:
+        sophon_cfg = SOPHON_MODELS.get(key, {})
         sophon_available = exporter_ready and postprocess_ready
         vendor_support["sophon"] = {
             "backend": "bmodel", "format": "BModel", "platforms": list(sophon_platforms),
-            "precisions": list(sophon_precisions or ("f16", "i8")),
-            "input_size": list(sophon_input_size or input_size or [640, 640]),
+            "precisions": list(sophon_precisions or sophon_cfg.get("precisions", ("f16", "i8"))),
+            "input_size": list(sophon_input_size or sophon_cfg.get("input_size") or input_size or [640, 640]),
             "available": sophon_available, "verified": bool(sophon_verified),
             "status": "verification_required" if not sophon_verified else "available",
             "blocker": "" if sophon_available else "SOPHGO exporter/backend is not registered",
-            "notes": sophon_notes,
+            "notes": sophon_notes or sophon_cfg.get("notes", ""),
         }
     return {
         "id": key, "name": name, "category": category, "example": example or key,
@@ -99,43 +102,35 @@ CATALOG = [
     _item("yolov5", "YOLOv5", "目标检测", source="pt", platforms=_ALL, input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/yolov5 export.py --rknpu；从原始权重提取标签和 anchors；已完成 RK3588 FP 与官方 bus 图验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path uses standard ONNX, TPU-MLIR, and BModel for BM1684X."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolov6", "YOLOv6", "目标检测", source="pt", input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/yolov6 的 RKNN 专用 9 路导出；显式 YoloV6 支持 4 通道距离解码；已完成 RK3588 FP 与官方 bus 图验收。"),
     _item("yolov7", "YOLOv7", "目标检测", source="pt", input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/yolov7 export.py --rknpu；从 checkpoint 提取标签和专属 anchors；已完成 RK3588 FP 与官方 bus 图验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path follows sophon-demo YOLOv7 TPU-MLIR scripts."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolov8", "YOLOv8", "目标检测", source="pt", input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/ultralytics_yolov8 的 format=rknn 友好导出；已完成 RK3588 FP 构建和官方 bus 图 SDK 对比验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_det."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolov8_obb", "YOLOv8 OBB", "旋转框检测", example="yolov8_obb", source="pt",
           input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Obb 返回中心/宽高/弧度角/四顶点，并执行旋转 NMS；已完成 RK3588 FP 验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_input_size=[1024, 1024],
-          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_obb with 1024 input."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolov10", "YOLOv10", "目标检测", source="pt", platforms=_ALL, input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/yolov10 的 RKNN 友好导出；已完成 PT→ONNX→RKNN→SDK 基准验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path follows sophon-demo YOLOv10 TPU-MLIR scripts."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolo11", "YOLO11", "目标检测", source="pt", platforms=_ALL, input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/ultralytics_yolo11 的 format=rknn 友好导出；已完成 RK3588 FP 构建和官方 bus 图 SDK 对比验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_det with yolov11 model_name."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolox", "YOLOX", "目标检测", source="pth", input_size=[640, 640], std=(1, 1, 1),
           weight_formats=(".pth",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/YOLOX export_onnx.py --rknpu；按官方契约保留 0–255 RGB 输入；已完成 RK3588 FP 与官方 bus 图验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path follows sophon-demo YOLOX TPU-MLIR scripts."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("ppyoloe", "PP-YOLOE", "目标检测", source="pdparams", input_size=[640, 640],
           weight_formats=(".pdparams",), exporter_ready=True, postprocess_ready=True,
           verified=True, notes="接受 PaddleDetection PP-YOLOE+ CRN-S/CRN-M 官方 .pdparams；从权重结构识别变体，使用 RK 官方 9 路优化输出与独立 Paddle 2.5.2 导出环境；两个变体均已完成 RK3588 FP 与官方 bus 图验收。"),
@@ -143,14 +138,12 @@ CATALOG = [
           input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pth",),
           exporter_ready=True, postprocess_ready=True, verified=True,
           notes="接受 YOLO-World V2-S 官方 .pth；从同一 checkpoint 导出检测器与 CLIP 文本塔；显式 YoloWorld 接收最多 80 个自定义类别文本。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16"),
-          sophon_notes="sophon-demo YOLO_world_v2 currently publishes FP32/FP16 MLIR scripts; INT8 is held back until official calibration flow is mirrored."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("yolov8_pose", "YOLOv8 Pose", "人体姿态", example="yolov8_pose", source="pt",
           platforms=_RK2, input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Pose 返回人体框与 17×3 关键点；已完成 RK3588 FP 验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path follows sophon-demo YOLOv8_pose TPU-MLIR scripts."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("deeplabv3", "DeepLabV3+", "图像分割", source="tensorflow_pb",
           input_size=[513, 513], mean=(127.5, 127.5, 127.5),
           std=(127.5, 127.5, 127.5), precisions=("fp", "i8"),
@@ -165,8 +158,7 @@ CATALOG = [
           input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/ultralytics_yolov8 的 13 路 RKNN 友好导出；显式 YoloV8Seg 返回框与原图尺寸实例掩码；已完成 RK3588 FP 验收。",
-          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
-          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_seg."),
+          sophon_platforms=SOPHON_PLATFORMS),
     _item("ppseg", "PP-LiteSeg", "图像分割", source="pdparams", input_size=[512, 512],
           mean=(123.675, 116.28, 103.53), std=(58.395, 57.12, 57.375),
           weight_formats=(".pdparams",), exporter_ready=True, postprocess_ready=True,

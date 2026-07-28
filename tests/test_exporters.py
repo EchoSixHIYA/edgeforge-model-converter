@@ -4,6 +4,7 @@ import pytest
 
 from server.exporters import ArchitectureExporters
 from server.backends.bmodel import BModelBackend
+from server.sophon_models import SOPHON_MODELS
 
 
 @pytest.mark.parametrize("architecture", ["yolov8", "yolo11"])
@@ -76,6 +77,17 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolox", ".pth", "sophon")
     assert exporter.supports("yolo_world", ".pth", "sophon")
     assert not exporter.supports("yolov8", ".onnx", "sophon")
+
+
+def test_sophon_model_registry_drives_public_yolo_support():
+    from server.catalog import BY_ID
+
+    for architecture, cfg in SOPHON_MODELS.items():
+        support = BY_ID[architecture]["vendor_support"]["sophon"]
+        assert support["input_size"] == cfg["input_size"]
+        assert set(cfg["weight_suffixes"]).issubset(BY_ID[architecture]["weight_formats"])
+        assert support["notes"] == cfg["notes"]
+    assert BModelBackend._model_name("yolov8_obb", "fallback") == SOPHON_MODELS["yolov8_obb"]["bmodel_name"]
 
 
 def test_bmodel_backend_invokes_tpu_mlir_for_fp16(monkeypatch, tmp_path):

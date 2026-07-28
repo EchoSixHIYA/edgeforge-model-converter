@@ -13,6 +13,7 @@ from .backends.bmodel import BModelBackend
 from .backends.rknn import RknnBackend
 from .catalog import BY_ID
 from .exporters import ArchitectureExporters
+from .sophon_models import sophon_model
 
 
 SDK_CLASSES = {
@@ -295,19 +296,8 @@ class Pipeline:
 
     def _reference_example(self, task, cfg):
         if task["vendor"] == "sophon":
-            mapping = {
-                "yolov5": "YOLOv5",
-                "yolov7": "YOLOv7",
-                "yolov8": "YOLOv8_plus_det",
-                "yolov8_seg": "YOLOv8_plus_seg",
-                "yolov8_pose": "YOLOv8_pose",
-                "yolov8_obb": "YOLOv8_plus_obb",
-                "yolov10": "YOLOv10",
-                "yolo11": "YOLOv11_det",
-                "yolox": "YOLOX",
-                "yolo_world": "YOLO_world_v2",
-            }
-            return self.sophon_demo / "sample" / mapping.get(cfg["id"], cfg["example"])
+            model = sophon_model(cfg["id"]) or {}
+            return self.sophon_demo / "sample" / model.get("sample", cfg["example"])
         return self.model_zoo / "examples" / cfg["example"]
 
     @staticmethod

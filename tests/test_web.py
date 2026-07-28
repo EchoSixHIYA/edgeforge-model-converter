@@ -9,6 +9,7 @@ import pytest
 from server.web import create_app
 from server.catalog import BY_ID
 from server.pipeline import Pipeline
+from server.sophon_models import SOPHON_MODELS
 from sdk_template.edgeforge_sdk.model import (
     Classification, MobileNetV2, YoloV10, _ModelBase,
     _decode, _nchw, _postprocess_classification, _postprocess_yolov5, _postprocess_yolox,
@@ -142,7 +143,7 @@ def test_sophon_package_uses_sophon_demo_reference(tmp_path):
     root = Path(__file__).resolve().parents[1]
     pipeline = Pipeline(root)
     pipeline.sophon_demo = tmp_path / "sophon-demo"
-    sample = pipeline.sophon_demo / "sample" / "YOLOv8_plus_obb"
+    sample = pipeline.sophon_demo / "sample" / SOPHON_MODELS["yolov8_obb"]["sample"]
     (sample / "python").mkdir(parents=True)
     (sample / "python" / "README.md").write_text("sophon obb reference", encoding="utf-8")
     onnx_path = tmp_path / "model.onnx"
