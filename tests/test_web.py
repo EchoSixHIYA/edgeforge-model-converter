@@ -22,8 +22,12 @@ def test_health_and_catalog(tmp_path):
     data = client.get("/api/catalog").get_json()
     assert len(data["models"]) >= 28
     assert {"rk3588", "rk3566"}.issubset(data["platforms"])
+    assert "bm1684x" in data["platforms"]
+    assert {vendor["id"] for vendor in data["vendors"]} >= {"rockchip", "sophon"}
+    assert {backend["id"] for backend in data["backends"]} >= {"rknn", "bmodel"}
     assert len(data["models"]) == 28
     assert all("status" in model and "blocker" in model for model in data["models"])
+    assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684x"]
     assert {model["id"] for model in data["models"]} == {
         "mobilenet", "resnet", "yolov5", "yolov6", "yolov7", "yolov8", "yolov8_obb",
         "yolov10", "yolo11", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
@@ -62,6 +66,27 @@ def test_verified_mobilenet_checkpoint_is_accepted(tmp_path):
     })
     assert response.status_code == 202
     assert response.get_json()["architecture"] == "mobilenet"
+
+
+def test_sophon_yolo_task_is_accepted_with_bm1684x_precision(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolov8", "platform": "bm1684x", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 202
+    task = response.get_json()
+    assert task["vendor"] == "sophon"
+    assert task["backend"] == "bmodel"
+
+
+def test_sophon_rejects_non_bm_platform(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolov8", "platform": "rk3588", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 400
 
 
 def test_generated_sdk_contains_runnable_example_assets(tmp_path):
@@ -240,6 +265,21 @@ def test_explicit_sdk_class_loads_external_model_bundle(tmp_path):
 
     with pytest.raises(ValueError, match="requires architecture=yolov10"):
         YoloV10(bundle)
+
+
+def test_explicit_sdk_class_loads_external_bmodel_bundle(tmp_path):
+    bundle = tmp_path / "yolov8_bmodel_bundle"
+    bundle.mkdir()
+    (bundle / "custom.bmodel").write_bytes(b"bmodel")
+    (bundle / "config.json").write_text(json.dumps({
+        "architecture": "yolov8", "vendor": "sophon", "backend": "bmodel",
+        "modality": "image", "task_type": "object_detection", "input_size": [640, 640],
+    }), encoding="utf-8")
+    from sdk_template.edgeforge_sdk.model import YoloV8
+
+    model = YoloV8(bundle)
+    assert model.model_path == bundle / "custom.bmodel"
+    assert model.config["backend"] == "bmodel"
 
 
 def test_automatic_edge_model_entry_is_not_public():

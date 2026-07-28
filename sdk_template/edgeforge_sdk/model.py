@@ -179,7 +179,7 @@ class InteractiveMask:
 
 
 class _ModelBase:
-    """Stable inference API for an EdgeForge-generated RKNN model."""
+    """Stable inference API for an EdgeForge-generated edge model."""
 
     architecture = None
 
@@ -198,15 +198,32 @@ class _ModelBase:
                 f"but model bundle declares {self.config['architecture']}")
         self.target, self.device_id, self.core_mask = target, device_id, core_mask
         self.engine = None
+        self._runtime = None
+        self._sail_graph = None
+        self._sail_inputs = None
         self._lite = False
 
     def load(self):
-        """Load the RKNN file and initialize its runtime, returning ``self``.
+        """Load the compiled model and initialize its runtime, returning ``self``.
 
-        The operation is idempotent.  RKNNLite is selected on-device; the full
-        Toolkit2 path requires ``target`` and a connected Rockchip device.
+        The operation is idempotent.  RKNNLite is selected for RKNN models.
+        SOPHON-SAIL is selected for BM1684X BModel bundles.
         """
         if self.engine is not None:
+            return self
+        if self.model_path.suffix.lower() == ".bmodel":
+            try:
+                import sophon.sail as sail
+            except ImportError as exc:
+                raise RuntimeError(
+                    "SOPHON-SAIL is required to run .bmodel files. Install the official "
+                    "sophon-sail Python package on the BM1684X device."
+                ) from exc
+            device_id = 0 if self.device_id is None else int(self.device_id)
+            self.engine = sail.Engine(str(self.model_path), device_id, sail.IOMode.SYSIO)
+            self._runtime = "sail"
+            self._sail_graph = self.engine.get_graph_names()[0]
+            self._sail_inputs = self.engine.get_input_names(self._sail_graph)
             return self
         try:
             from rknnlite.api import RKNNLite
@@ -234,7 +251,10 @@ class _ModelBase:
 
     def close(self):
         if self.engine is not None:
-            self.engine.release(); self.engine = None
+            if getattr(self, "_runtime", None) != "sail":
+                self.engine.release()
+            self.engine = None
+            self._runtime = None
 
     def __enter__(self):
         return self.load()
@@ -261,6 +281,18 @@ class _ModelBase:
             normalized.append(value)
         shapes = [list(value.shape) if isinstance(value, np.ndarray) else None
                   for value in normalized]
+        if getattr(self, "_runtime", None) == "sail":
+            if len(normalized) != len(self._sail_inputs):
+                raise ValueError(
+                    f"BModel expects {len(self._sail_inputs)} inputs, got {len(normalized)}")
+            feed = {name: np.asarray(value) for name, value in zip(self._sail_inputs, normalized)}
+            try:
+                outputs = self.engine.process(self._sail_graph, feed)
+            except Exception as exc:
+                raise RuntimeError(f"SOPHON-SAIL inference failed for input shapes {shapes}: {exc}") from exc
+            if isinstance(outputs, dict):
+                return [outputs[name] for name in self.engine.get_output_names(self._sail_graph)]
+            return list(outputs)
         try:
             outputs = self.engine.inference(inputs=normalized)
         except Exception as exc:
@@ -525,13 +557,15 @@ def _preprocess_audio(source, sample_rate, sample_count):
 def _resolve_model_assets(model_path, config_path, packaged):
     if model_path is None:
         model = packaged / "model.rknn"
+        if not model.is_file():
+            model = packaged / "model.bmodel"
         config = Path(config_path) if config_path else packaged / "config.json"
     else:
         requested = Path(model_path)
         if requested.is_dir():
-            models = sorted(requested.glob("*.rknn"))
+            models = sorted(requested.glob("*.rknn")) + sorted(requested.glob("*.bmodel"))
             if not models:
-                raise ValueError(f"model directory contains no .rknn file: {requested}")
+                raise ValueError(f"model directory contains no .rknn or .bmodel file: {requested}")
             model = models[0] if len(models) == 1 else requested
             config = Path(config_path) if config_path else requested / "config.json"
         else:
@@ -544,7 +578,7 @@ def _resolve_model_assets(model_path, config_path, packaged):
                 config = requested.parent / "config.json"
     if not config.is_file():
         raise ValueError(
-            f"model config not found: {config}; keep config.json with the RKNN model "
+            f"model config not found: {config}; keep config.json with the compiled model "
             "or pass config_path explicitly")
     return model, config
 
@@ -1315,6 +1349,7 @@ class MobileSAM(_ModelBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.engines = {}
+        self._component_runtimes = {}
 
     def _component_paths(self):
         files = self.config.get("model_files")
@@ -1331,6 +1366,23 @@ class MobileSAM(_ModelBase):
         if self.engines:
             return self
         for name, path in self._component_paths().items():
+            if path.suffix.lower() == ".bmodel":
+                try:
+                    import sophon.sail as sail
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "SOPHON-SAIL is required to run .bmodel component files."
+                    ) from exc
+                device_id = 0 if self.device_id is None else int(self.device_id)
+                engine = sail.Engine(str(path), device_id, sail.IOMode.SYSIO)
+                graph = engine.get_graph_names()[0]
+                self.engines[name] = {
+                    "runtime": "sail", "engine": engine, "graph": graph,
+                    "inputs": engine.get_input_names(graph),
+                    "outputs": engine.get_output_names(graph),
+                }
+                self._component_runtimes[name] = "sail"
+                continue
             try:
                 from rknnlite.api import RKNNLite
                 engine, lite = RKNNLite(), True
@@ -1355,12 +1407,16 @@ class MobileSAM(_ModelBase):
                 engine.release(); self.close()
                 raise RuntimeError(f"init_runtime failed for MobileSAM {name}: {ret}")
             self.engines[name] = engine
+            self._component_runtimes[name] = "rknn"
         return self
 
     def close(self):
         for engine in self.engines.values():
+            if isinstance(engine, dict):
+                continue
             engine.release()
         self.engines.clear()
+        self._component_runtimes.clear()
 
     def infer_raw(self, inputs, *, component):
         """Run one raw component; ``component`` is ``encoder`` or ``decoder``."""
@@ -1368,6 +1424,15 @@ class MobileSAM(_ModelBase):
             raise ValueError("MobileSAM component must be 'encoder' or 'decoder'")
         self.load()
         values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        if self._component_runtimes.get(component) == "sail":
+            runner = self.engines[component]
+            if len(values) != len(runner["inputs"]):
+                raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
+            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            outputs = runner["engine"].process(runner["graph"], feed)
+            if isinstance(outputs, dict):
+                return [outputs[name] for name in runner["outputs"]]
+            return list(outputs)
         kwargs = {"inputs": values}
         if component == "decoder":
             kwargs["data_format"] = "nchw"
@@ -1554,6 +1619,15 @@ class CLIP(MobileSAM):
             raise ValueError("CLIP component must be 'image' or 'text'")
         self.load()
         values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        if self._component_runtimes.get(component) == "sail":
+            runner = self.engines[component]
+            if len(values) != len(runner["inputs"]):
+                raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
+            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            outputs = runner["engine"].process(runner["graph"], feed)
+            if isinstance(outputs, dict):
+                return [outputs[name] for name in runner["outputs"]]
+            return list(outputs)
         outputs = self.engines[component].inference(inputs=values)
         if outputs is None:
             raise RuntimeError(f"CLIP {component} inference returned no outputs")
@@ -1647,6 +1721,15 @@ class YoloWorld(CLIP):
             raise ValueError("YoloWorld component must be 'detector' or 'text'")
         self.load()
         values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        if self._component_runtimes.get(component) == "sail":
+            runner = self.engines[component]
+            if len(values) != len(runner["inputs"]):
+                raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
+            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            outputs = runner["engine"].process(runner["graph"], feed)
+            if isinstance(outputs, dict):
+                return [outputs[name] for name in runner["outputs"]]
+            return list(outputs)
         outputs = self.engines[component].inference(inputs=values)
         if outputs is None:
             raise RuntimeError(f"YoloWorld {component} inference returned no outputs")

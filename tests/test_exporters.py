@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from server.exporters import ArchitectureExporters
+from server.backends.bmodel import BModelBackend
 
 
 @pytest.mark.parametrize("architecture", ["yolov8", "yolo11"])
@@ -66,6 +67,71 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert not exporter.supports("clip", ".onnx", "rockchip")
     assert exporter.supports("yolo_world", ".pth", "rockchip")
     assert not exporter.supports("yolo_world", ".onnx", "rockchip")
+    assert exporter.supports("yolov8", ".pt", "sophon")
+    assert exporter.supports("yolov10", ".pt", "sophon")
+    assert exporter.supports("yolo11", ".pt", "sophon")
+    assert exporter.supports("yolox", ".pth", "sophon")
+    assert exporter.supports("yolo_world", ".pth", "sophon")
+    assert not exporter.supports("yolov8", ".onnx", "sophon")
+
+
+def test_bmodel_backend_invokes_tpu_mlir_for_fp16(monkeypatch, tmp_path):
+    onnx = tmp_path / "model.onnx"
+    out = tmp_path / "model.bmodel"
+    onnx.write_bytes(b"onnx")
+    calls = []
+
+    monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(command, cwd, text, capture_output):
+        calls.append(command)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
+    backend = BModelBackend()
+    backend.convert(onnx, out, {
+        "platform": "bm1684x", "precision": "f16",
+        "catalog": {"id": "yolov8", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
+        "component": "model",
+    }, lambda *_: None)
+
+    assert calls[0][0] == "model_transform.py"
+    assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640]]"
+    assert calls[1][0] == "model_deploy.py"
+    assert calls[1][calls[1].index("--quantize") + 1] == "F16"
+
+
+def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
+    onnx = tmp_path / "detector.onnx"
+    out = tmp_path / "detector.bmodel"
+    dataset = tmp_path / "dataset.txt"
+    onnx.write_bytes(b"onnx")
+    dataset.write_text("image.jpg\n", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(command, cwd, text, capture_output):
+        calls.append(command)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
+    BModelBackend().convert(onnx, out, {
+        "platform": "bm1684x", "precision": "i8", "dataset": str(dataset),
+        "catalog": {"id": "yolo_world", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
+        "component": "detector",
+    }, lambda *_: None)
+
+    assert [call[0] for call in calls] == ["model_transform.py", "run_calibration.py", "model_deploy.py"]
+    assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640],[1,80,512]]"
+    assert "--calibration_table" in calls[-1]
 
 
 def test_retinaface_decodes_box_and_five_landmarks():

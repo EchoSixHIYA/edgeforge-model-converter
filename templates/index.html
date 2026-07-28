@@ -42,7 +42,7 @@
             <label class="wide">模型架构
               <select name="architecture" id="architecture" required>
                 <optgroup label="已完成真实验收">
-                  {% for item in catalog if item.available %}<option value="{{ item.id }}" data-platforms='{{ item.platforms|tojson }}' data-formats='{{ item.weight_formats|tojson }}' data-size='{{ item.input_size|tojson }}' data-precisions='{{ item.precisions|tojson }}'>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                  {% for item in catalog if item.available %}<option value="{{ item.id }}" data-platforms='{{ item.platforms|tojson }}' data-formats='{{ item.weight_formats|tojson }}' data-size='{{ item.input_size|tojson }}' data-precisions='{{ item.precisions|tojson }}' data-vendor-support='{{ item.vendor_support|tojson }}'>{{ item.name }} · {{ item.category }}</option>{% endfor %}
                 </optgroup>
                 <optgroup label="RK 官方目录（待完成闭环）">
                   {% for item in catalog if not item.available %}<option value="{{ item.id }}" disabled title="{{ item.blocker }}">{{ item.name }} · {{ item.category }}（{{ item.status_label }}）</option>{% endfor %}
@@ -73,6 +73,9 @@
           <select name="precision" id="precision">
             <option value="i8">INT8 · 推荐，最高 NPU 吞吐</option>
             <option value="fp">FP16 / 浮点 · 保留更高精度</option>
+            <option value="f16">SOPHGO FP16 · BModel 浮点</option>
+            <option value="f32">SOPHGO FP32 · BModel 高精度</option>
+            <option value="bf16">SOPHGO BF16 · BModel 平衡精度</option>
             <option value="u8">UINT8 · 兼容旧平台</option>
           </select>
         </label>

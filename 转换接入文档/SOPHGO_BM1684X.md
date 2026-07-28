@@ -1,0 +1,67 @@
+# SOPHGO BM1684X 接入说明
+
+EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端产物。
+
+当前链路：
+
+```text
+原始权重
+  -> SOPHGO 友好 ONNX
+  -> TPU-MLIR model_transform.py
+  -> run_calibration.py (INT8)
+  -> model_deploy.py
+  -> BM1684X .bmodel
+  -> SOPHON-SAIL Python SDK
+```
+
+## 已接入的优先模型
+
+首批以 `sophgo/sophon-demo` 中有 TPU-MLIR 脚本的 YOLO 系列为主：
+
+- YOLOv5
+- YOLOv7
+- YOLOv8 detection
+- YOLOv10
+- YOLO11 detection
+- YOLOX
+- YOLO-World V2
+
+YOLO-World V2 在官方样例中包含 detector 与 `clip_text` 两个 ONNX/BModel 组件，因此 SDK 包会保留多模型结构。官方当前主要脚本覆盖 FP32/FP16，INT8 暂不开放到工作台，直到校准契约完成复刻与验收。
+
+## 精度约定
+
+工作台精度到 TPU-MLIR 的映射：
+
+- `f32` -> `--quantize F32`
+- `f16` -> `--quantize F16`
+- `bf16` -> `--quantize BF16`
+- `i8` -> `--quantize INT8`
+
+INT8 必须上传校准图片 ZIP。服务端会解压并生成 `dataset.txt`，后端把它传给 `run_calibration.py --dataset`。
+
+## 环境要求
+
+转换机需要先进入官方 TPU-MLIR 环境，并确保以下命令在 `PATH` 中：
+
+- `model_transform.py`
+- `run_calibration.py`，仅 INT8 需要
+- `model_deploy.py`
+
+板端运行 `.bmodel` 需要安装 SOPHON-SAIL Python 包。统一 SDK 会根据模型文件后缀自动选择运行时：
+
+- `.rknn` 使用 RKNNLite/RKNN Runtime
+- `.bmodel` 使用 `sophon.sail.Engine`
+
+调用入口仍然是显式模型类，例如：
+
+```python
+from edgeforge_sdk import YoloV8
+
+with YoloV8("model", device_id=0) as model:
+    results = model.predict("test.jpg")
+    print([item.as_dict() for item in results])
+```
+
+## 版本管理
+
+`vendor/sophon-demo` 不纳入 git。官方仓库只作为外部参考与本地导出依赖，项目版本库仅提交 EdgeForge 的适配层、文档和测试。

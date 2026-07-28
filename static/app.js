@@ -1,4 +1,5 @@
 const form = document.querySelector('#convertForm');
+const vendor = document.querySelector('#vendor');
 const arch = document.querySelector('#architecture');
 const platform = document.querySelector('#platform');
 const precision = document.querySelector('#precision');
@@ -9,10 +10,22 @@ const watchers = new Map();
 
 function syncOptions() {
   const option = arch.selectedOptions[0];
-  const allowed = JSON.parse(option.dataset.platforms || '[]');
+  const vendorSupport = JSON.parse(option.dataset.vendorSupport || '{}');
+  const selectedVendor = vendor.value;
+  const support = vendorSupport[selectedVendor] || {};
+  const allowed = support.platforms || JSON.parse(option.dataset.platforms || '[]');
   const formats = JSON.parse(option.dataset.formats || '[]');
   const size = JSON.parse(option.dataset.size || '[640,640]');
-  const precisions = JSON.parse(option.dataset.precisions || '["fp"]');
+  const precisions = support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
+  [...arch.options].forEach(item => {
+    const itemSupport = JSON.parse(item.dataset.vendorSupport || '{}');
+    item.hidden = !itemSupport[selectedVendor]?.available;
+  });
+  if (arch.selectedOptions[0]?.hidden) {
+    const next = [...arch.options].find(item => !item.hidden && !item.disabled);
+    if (next) arch.value = next.value;
+    return syncOptions();
+  }
   [...platform.options].forEach(item => item.hidden = !allowed.includes(item.value));
   if (!allowed.includes(platform.value)) platform.value = allowed[0];
   [...precision.options].forEach(item => item.hidden = !precisions.includes(item.value));
@@ -24,6 +37,7 @@ function syncOptions() {
   document.querySelector('#calibrationBox').classList.toggle('hidden', precision.value === 'fp');
 }
 
+vendor.addEventListener('change', syncOptions);
 arch.addEventListener('change', syncOptions);
 precision.addEventListener('change', syncOptions);
 syncOptions();

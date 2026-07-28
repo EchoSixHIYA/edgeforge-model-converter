@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .backends.base import BackendRegistry
+from .backends.bmodel import BModelBackend
 from .backends.rknn import RknnBackend
 from .catalog import BY_ID
 from .exporters import ArchitectureExporters
@@ -46,6 +47,7 @@ class Pipeline:
         self.exporters = ArchitectureExporters(self.root)
         self.backends = BackendRegistry()
         self.backends.register(RknnBackend())
+        self.backends.register(BModelBackend())
 
     def run(self, task, update):
         work = Path(task["work_dir"])
@@ -56,7 +58,10 @@ class Pipeline:
         update(8, "检查上传文件")
         if not source.is_file() or source.stat().st_size == 0:
             raise ValueError("上传的模型文件为空或不存在")
-        if task["platform"] not in cfg["platforms"]:
+        support = cfg.get("vendor_support", {}).get(task["vendor"])
+        if not support or not support.get("available"):
+            raise ValueError(f"{cfg['name']} does not support vendor {task['vendor']}")
+        if task["platform"] not in support["platforms"]:
             raise ValueError(f"{cfg['name']} 不支持目标平台 {task['platform']}")
 
         dataset = self._prepare_calibration(task.get("calibration_path"), work, update)
@@ -72,6 +77,7 @@ class Pipeline:
             options = {
                 "platform": task["platform"], "precision": task["precision"],
                 "dataset": str(dataset) if dataset else None, "catalog": cfg,
+                "component": component,
             }
             if cfg["id"] == "mobilesam" and component == "decoder":
                 options["fuse_normalization"] = False
@@ -163,7 +169,7 @@ class Pipeline:
         model_dir.mkdir(exist_ok=True)
         for component, output in outputs.items():
             shutil.copy2(output, model_dir / output.name)
-            embedded_name = "model.rknn" if len(outputs) == 1 else output.name
+            embedded_name = f"model{output.suffix}" if len(outputs) == 1 else output.name
             shutil.copy2(output, stage / "edgeforge_sdk" / embedded_name)
         for onnx_path in onnx_models.values():
             shutil.copy2(onnx_path, model_dir / onnx_path.name)
@@ -180,6 +186,7 @@ class Pipeline:
             "modality": cfg["modality"], "task_type": cfg["task_type"],
             "result_type": cfg["result_type"],
             "platform": task["platform"], "precision": task["precision"],
+            "vendor": task["vendor"], "backend": task["backend"],
             "input_size": cfg["input_size"] or [640, 640], "labels": labels,
             "mean": cfg.get("mean", [0, 0, 0]), "std": cfg.get("std", [255, 255, 255]),
             "color_order": cfg.get("color_order", "rgb"),

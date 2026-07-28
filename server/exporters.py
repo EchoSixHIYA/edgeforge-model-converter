@@ -31,6 +31,14 @@ class ArchitectureExporters:
         self.repos = self.root / "vendor" / "exporters"
 
     def supports(self, architecture, suffix, vendor):
+        if vendor == "sophon":
+            if architecture == "yolox":
+                return suffix.lower() == ".pth"
+            if architecture == "yolo_world":
+                return suffix.lower() == ".pth"
+            return suffix.lower() == ".pt" and architecture in {
+                "yolov5", "yolov7", "yolov8", "yolov10", "yolo11",
+            }
         if vendor != "rockchip":
             return False
         if architecture in {"mobilenet", "resnet", "yolox", "retinaface", "lprnet"}:
@@ -56,6 +64,8 @@ class ArchitectureExporters:
     def export(self, source, work, architecture, vendor, progress):
         if not self.supports(architecture, source.suffix, vendor):
             raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传模型目录声明的原始权重格式")
+        if vendor == "sophon":
+            return self._export_sophon_yolo(source, work, architecture, progress)
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
             model_name = "mobilenet_v2" if architecture == "mobilenet" else "resnet50"
@@ -299,6 +309,97 @@ class ArchitectureExporters:
         if not candidates:
             raise RuntimeError(f"{family} 导出命令结束，但未找到 ONNX 产物")
         output = work / "model.onnx"
+        shutil.copy2(candidates[0], output)
+        return output
+
+    def _export_sophon_yolo(self, source, work, architecture, progress):
+        metadata = work / "export_metadata.json"
+        output = work / "model.onnx"
+        progress(24, f"Exporting {architecture.upper()} to SOPHGO-friendly ONNX")
+        if architecture == "yolo_world":
+            detector = work / "detector.onnx"
+            text_model = work / "text.onnx"
+            repo = self.repos / "yolo_world"
+            assets = self.repos / "clip"
+            export_python = Path(os.environ.get(
+                "EDGEFORGE_YOLO_WORLD_PYTHON",
+                str(Path(sys.prefix).parent / ".edgeforge-yolo-world-export-venv" /
+                    "bin" / "python")))
+            if not export_python.is_file():
+                raise RuntimeError(
+                    f"缂哄皯 YOLO-World 鐙珛瀵煎嚭鐜: {export_python}锛涜閲嶆柊杩愯 scripts/setup_wsl.sh")
+            self._run([
+                str(export_python), str(self.root / "server" / "yolo_world_export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--assets", str(assets),
+                "--labels", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
+                                "yolo_world" / "model" / "detect_classes.txt"),
+                "--detector", str(detector), "--text", str(text_model),
+                "--tokenizer-output", str(work / "tokenizer"),
+                "--metadata", str(metadata),
+            ], repo)
+            return {"detector": detector, "text": text_model}
+        if architecture == "yolox":
+            repo = self.repos / "yolox"
+            self._run([
+                sys.executable, str(self.root / "server" / "yolox_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(metadata),
+                "--official-labels", str(self.root / "vendor" / "rknn_model_zoo" /
+                                          "examples" / "yolox" / "model" /
+                                          "coco_80_labels_list.txt"),
+                "--official-s-sha256", "f55ded7181e1b0c13285c56e7790b8f0e8f8db590fe4edb37f0b7f345c913a30",
+            ], repo)
+            variant = __import__("json").loads(metadata.read_text(encoding="utf-8"))["model_variant"]
+            self._run([
+                sys.executable, "tools/export_onnx.py", "--output-name", str(output),
+                "-n", variant, "-c", str(source.resolve()), "--no-onnxsim",
+            ], repo)
+            return output
+        if architecture in {"yolov8", "yolo11"}:
+            repo = self.repos / ("yolov8" if architecture == "yolov8" else "yolo11")
+            self._run([
+                sys.executable, str(self.root / "server" / "export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--format", "onnx", "--opset", "17", "--imgsz", "640",
+                "--metadata", str(metadata),
+            ], repo)
+        elif architecture == "yolov10":
+            repo = self.root / "vendor" / "yolov10"
+            self._run([
+                sys.executable, str(self.root / "server" / "export_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--format", "onnx", "--opset", "17", "--imgsz", "640",
+                "--metadata", str(metadata),
+            ], repo)
+        elif architecture == "yolov5":
+            repo = self.repos / "yolov5"
+            self._run([
+                sys.executable, "export.py", "--weights", str(source.resolve()),
+                "--include", "onnx", "--opset", "12", "--simplify",
+            ], repo)
+            self._run([
+                sys.executable, str(self.root / "server" / "yolov5_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()), "--output", str(metadata),
+            ], repo)
+        elif architecture == "yolov7":
+            repo = self.repos / "yolov7"
+            self._run([
+                sys.executable, "export.py", "--weights", str(source.resolve()),
+                "--device", "cpu",
+            ], repo)
+            self._run([
+                sys.executable, str(self.root / "server" / "yolov7_metadata_worker.py"),
+                "--repo", str(repo), "--model", str(source.resolve()),
+                "--output", str(metadata),
+            ], repo)
+        else:
+            raise ValueError(f"{architecture} is not registered for SOPHGO export")
+        candidates = sorted(source.parent.glob(f"{source.stem}*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            candidates = sorted(repo.rglob(f"{source.stem}*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            raise RuntimeError(f"{architecture} export finished but no ONNX artifact was found")
         shutil.copy2(candidates[0], output)
         return output
 

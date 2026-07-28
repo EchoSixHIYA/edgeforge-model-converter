@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -32,7 +33,15 @@ def create_app(test_config=None):
             toolkit = True
         except ImportError:
             pass
+        sail = False
+        try:
+            import sophon.sail  # noqa: F401
+            sail = True
+        except ImportError:
+            pass
         return jsonify(status="ok", rknn_toolkit2=toolkit,
+                       tpu_mlir=bool(shutil.which("model_transform.py") and shutil.which("model_deploy.py")),
+                       sophon_sail=sail,
                        model_zoo=pipeline.model_zoo.is_dir(), yolov10_exporter=pipeline.yolov10_repo.is_dir())
 
     @app.get("/api/catalog")
@@ -61,15 +70,20 @@ def create_app(test_config=None):
         if fields["architecture"] not in BY_ID:
             return jsonify(error="未知模型架构"), 400
         model_cfg = BY_ID[fields["architecture"]]
-        if not model_cfg["available"]:
-            return jsonify(error=f"{model_cfg['name']} 尚未达到可转换标准：{model_cfg['blocker']}"), 400
+        support = model_cfg.get("vendor_support", {}).get(fields["vendor"])
+        if not support or not support.get("available"):
+            blocker = support.get("blocker") if support else "该厂家尚未接入此模型"
+            return jsonify(error=f"{model_cfg['name']} 尚未达到 {vendor['name']} 可转换标准：{blocker}"), 400
         if fields["backend"] not in {x["id"] for x in pipeline.backends.describe()}:
             return jsonify(error="未知输出后端"), 400
         if fields["platform"] not in PLATFORMS:
             return jsonify(error="未知目标芯片"), 400
-        if fields["precision"] not in model_cfg["precisions"]:
+        if fields["platform"] not in support["platforms"]:
+            return jsonify(error=f"{model_cfg['name']} 在 {vendor['name']} 上支持的平台为: "
+                           + ", ".join(x.upper() for x in support["platforms"])), 400
+        if fields["precision"] not in support["precisions"]:
             return jsonify(error=(f"{model_cfg['name']} 官方支持的精度为: "
-                                  + ", ".join(x.upper() for x in model_cfg["precisions"]))), 400
+                                  + ", ".join(x.upper() for x in support["precisions"]))), 400
         model = request.files["model"]
         suffix = Path(model.filename or "").suffix.lower()
         if suffix not in set(model_cfg["weight_formats"]):
