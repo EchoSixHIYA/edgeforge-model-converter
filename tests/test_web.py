@@ -35,6 +35,7 @@ def test_health_and_catalog(tmp_path):
     assert all("status" in model and "blocker" in model for model in data["models"])
     assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684x"]
     assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
+    assert BY_ID["yolox"]["vendor_support"]["sophon"]["weight_formats"] == [".pth"]
     assert {model["id"] for model in data["models"]} == {
         "mobilenet", "resnet", "yolov5", "yolov6", "yolov7", "yolov8", "yolov8_obb",
         "yolov10", "yolo11", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
@@ -68,6 +69,7 @@ def test_sdk_docs_and_example_image_are_shipped(tmp_path):
 def test_frontend_script_has_valid_sophon_health_copy():
     script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
     assert "health.sophon?.ready" in script
+    assert "support.weight_formats" in script
     assert "SOPHGO 环境就绪" in script
     assert "转换环境组件待安装" in script
     assert "鐜" not in script
@@ -112,6 +114,16 @@ def test_sophon_yolov8_obb_accepts_vendor_specific_size(tmp_path):
     })
     assert response.status_code == 202
     assert response.get_json()["backend"] == "bmodel"
+
+
+def test_sophon_uses_vendor_specific_upload_formats(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolox", "platform": "bm1684x", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 400
+    assert ".pth" in response.get_json()["error"]
 
 
 def test_generated_sdk_contains_runnable_example_assets(tmp_path):

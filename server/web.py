@@ -104,8 +104,9 @@ def create_app(test_config=None):
                                   + ", ".join(x.upper() for x in support["precisions"]))), 400
         model = request.files["model"]
         suffix = Path(model.filename or "").suffix.lower()
-        if suffix not in set(model_cfg["weight_formats"]):
-            return jsonify(error="该架构只接受原始权重格式: " + ", ".join(model_cfg["weight_formats"])), 400
+        weight_formats = support.get("weight_formats", model_cfg["weight_formats"])
+        if suffix not in set(weight_formats):
+            return jsonify(error="unsupported source weight format / 原始权重: " + ", ".join(weight_formats)), 400
         calibration = request.files.get("calibration")
         if calibration and calibration.filename and Path(calibration.filename).suffix.lower() != ".zip":
             return jsonify(error="校准集必须是 ZIP"), 400

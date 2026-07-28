@@ -14,7 +14,7 @@ function syncOptions() {
   const selectedVendor = vendor.value;
   const support = vendorSupport[selectedVendor] || {};
   const allowed = support.platforms || JSON.parse(option.dataset.platforms || '[]');
-  const formats = JSON.parse(option.dataset.formats || '[]');
+  const formats = support.weight_formats || JSON.parse(option.dataset.formats || '[]');
   const size = support.input_size || JSON.parse(option.dataset.size || '[640,640]');
   const precisions = support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
 

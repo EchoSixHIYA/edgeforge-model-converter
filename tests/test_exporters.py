@@ -89,7 +89,7 @@ def test_sophon_model_registry_drives_public_yolo_support():
     for architecture, cfg in SOPHON_MODELS.items():
         support = BY_ID[architecture]["vendor_support"]["sophon"]
         assert support["input_size"] == cfg["input_size"]
-        assert set(cfg["weight_suffixes"]).issubset(BY_ID[architecture]["weight_formats"])
+        assert support["weight_formats"] == list(cfg["weight_suffixes"])
         assert support["notes"] == cfg["notes"]
     assert BModelBackend._model_name("yolov8_obb", "fallback") == SOPHON_MODELS["yolov8_obb"]["bmodel_name"]
 

@@ -54,6 +54,7 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
         "rockchip": {
             "backend": "rknn", "format": "RKNN", "platforms": list(platforms or _STANDARD),
             "precisions": list(precisions), "available": available, "verified": verified,
+            "weight_formats": list(weight_formats),
             "status": status, "blocker": blocker or ("" if available else status_label),
             "notes": notes,
         }
@@ -65,6 +66,7 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
             "backend": "bmodel", "format": "BModel", "platforms": list(sophon_platforms),
             "precisions": list(sophon_precisions or sophon_cfg.get("precisions", ("f16", "i8"))),
             "input_size": list(sophon_input_size or sophon_cfg.get("input_size") or input_size or [640, 640]),
+            "weight_formats": list(sophon_cfg.get("weight_suffixes", weight_formats)),
             "available": sophon_available, "verified": bool(sophon_verified),
             "status": "verification_required" if not sophon_verified else "available",
             "blocker": "" if sophon_available else "SOPHGO exporter/backend is not registered",
