@@ -68,6 +68,9 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolo_world", ".pth", "rockchip")
     assert not exporter.supports("yolo_world", ".onnx", "rockchip")
     assert exporter.supports("yolov8", ".pt", "sophon")
+    assert exporter.supports("yolov8_seg", ".pt", "sophon")
+    assert exporter.supports("yolov8_pose", ".pt", "sophon")
+    assert exporter.supports("yolov8_obb", ".pt", "sophon")
     assert exporter.supports("yolov10", ".pt", "sophon")
     assert exporter.supports("yolo11", ".pt", "sophon")
     assert exporter.supports("yolox", ".pth", "sophon")
@@ -132,6 +135,33 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     assert [call[0] for call in calls] == ["model_transform.py", "run_calibration.py", "model_deploy.py"]
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640],[1,80,512]]"
     assert "--calibration_table" in calls[-1]
+
+
+def test_bmodel_backend_uses_vendor_input_size_for_obb(monkeypatch, tmp_path):
+    onnx = tmp_path / "model.onnx"
+    out = tmp_path / "model.bmodel"
+    onnx.write_bytes(b"onnx")
+    calls = []
+    monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(command, cwd, text, capture_output):
+        calls.append(command)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
+    BModelBackend().convert(onnx, out, {
+        "platform": "bm1684x", "precision": "f16",
+        "catalog": {"id": "yolov8_obb", "input_size": [1024, 1024],
+                    "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
+        "component": "model",
+    }, lambda *_: None)
+
+    assert calls[0][calls[0].index("--model_name") + 1] == "yolov8s-obb"
+    assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,1024,1024]]"
 
 
 def test_retinaface_decodes_box_and_five_landmarks():

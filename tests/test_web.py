@@ -28,6 +28,7 @@ def test_health_and_catalog(tmp_path):
     assert len(data["models"]) == 28
     assert all("status" in model and "blocker" in model for model in data["models"])
     assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684x"]
+    assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
     assert {model["id"] for model in data["models"]} == {
         "mobilenet", "resnet", "yolov5", "yolov6", "yolov7", "yolov8", "yolov8_obb",
         "yolov10", "yolo11", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
@@ -87,6 +88,16 @@ def test_sophon_rejects_non_bm_platform(tmp_path):
         "model": (io.BytesIO(b"weights"), "model.pt"),
     })
     assert response.status_code == 400
+
+
+def test_sophon_yolov8_obb_accepts_vendor_specific_size(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolov8_obb", "platform": "bm1684x", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 202
+    assert response.get_json()["backend"] == "bmodel"
 
 
 def test_generated_sdk_contains_runnable_example_assets(tmp_path):

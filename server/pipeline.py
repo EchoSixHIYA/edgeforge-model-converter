@@ -63,6 +63,9 @@ class Pipeline:
             raise ValueError(f"{cfg['name']} does not support vendor {task['vendor']}")
         if task["platform"] not in support["platforms"]:
             raise ValueError(f"{cfg['name']} 不支持目标平台 {task['platform']}")
+        effective_cfg = dict(cfg)
+        if support.get("input_size"):
+            effective_cfg["input_size"] = support["input_size"]
 
         dataset = self._prepare_calibration(task.get("calibration_path"), work, update)
         onnx_artifacts = self._to_onnx(source, work, task, update)
@@ -76,7 +79,7 @@ class Pipeline:
             output = work / f"{component}{backend.output_suffix}"
             options = {
                 "platform": task["platform"], "precision": task["precision"],
-                "dataset": str(dataset) if dataset else None, "catalog": cfg,
+                "dataset": str(dataset) if dataset else None, "catalog": effective_cfg,
                 "component": component,
             }
             if cfg["id"] == "mobilesam" and component == "decoder":
@@ -90,7 +93,7 @@ class Pipeline:
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
         update(91, "组装对应架构的部署 SDK")
-        package = self._package_sdk(task, cfg, onnx_models, outputs, work)
+        package = self._package_sdk(task, effective_cfg, onnx_models, outputs, work)
         if len(outputs) == 1:
             model_artifact = next(iter(outputs.values()))
         else:

@@ -21,6 +21,9 @@ EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端�
 - YOLOv5
 - YOLOv7
 - YOLOv8 detection
+- YOLOv8 Pose
+- YOLOv8 Seg
+- YOLOv8 OBB，官方 TPU-MLIR 样例使用 1024 输入
 - YOLOv10
 - YOLO11 detection
 - YOLOX

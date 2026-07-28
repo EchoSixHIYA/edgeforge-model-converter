@@ -34,7 +34,7 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
           color_order="rgb",
           notes="", weight_formats=(), exporter_ready=False, postprocess_ready=False,
           verified=False, blocker="", sophon_platforms=None, sophon_precisions=None,
-          sophon_verified=False, sophon_notes=""):
+          sophon_verified=False, sophon_notes="", sophon_input_size=None):
     available = exporter_ready and postprocess_ready and verified
     if available:
         status = "available"
@@ -61,6 +61,7 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
         vendor_support["sophon"] = {
             "backend": "bmodel", "format": "BModel", "platforms": list(sophon_platforms),
             "precisions": list(sophon_precisions or ("f16", "i8")),
+            "input_size": list(sophon_input_size or input_size or [640, 640]),
             "available": sophon_available, "verified": bool(sophon_verified),
             "status": "verification_required" if not sophon_verified else "available",
             "blocker": "" if sophon_available else "SOPHGO exporter/backend is not registered",
@@ -116,7 +117,10 @@ CATALOG = [
     _item("yolov8_obb", "YOLOv8 OBB", "旋转框检测", example="yolov8_obb", source="pt",
           input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
-          notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Obb 返回中心/宽高/弧度角/四顶点，并执行旋转 NMS；已完成 RK3588 FP 验收。"),
+          notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Obb 返回中心/宽高/弧度角/四顶点，并执行旋转 NMS；已完成 RK3588 FP 验收。",
+          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
+          sophon_input_size=[1024, 1024],
+          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_obb with 1024 input."),
     _item("yolov10", "YOLOv10", "目标检测", source="pt", platforms=_ALL, input_size=[640, 640],
           weight_formats=(".pt",), exporter_ready=True, postprocess_ready=True, verified=True,
           notes="使用 airockchip/yolov10 的 RKNN 友好导出；已完成 PT→ONNX→RKNN→SDK 基准验收。",
@@ -144,7 +148,9 @@ CATALOG = [
     _item("yolov8_pose", "YOLOv8 Pose", "人体姿态", example="yolov8_pose", source="pt",
           platforms=_RK2, input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
-          notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Pose 返回人体框与 17×3 关键点；已完成 RK3588 FP 验收。"),
+          notes="使用 airockchip/ultralytics_yolov8 的 RKNN 友好导出；显式 YoloV8Pose 返回人体框与 17×3 关键点；已完成 RK3588 FP 验收。",
+          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
+          sophon_notes="SOPHGO path follows sophon-demo YOLOv8_pose TPU-MLIR scripts."),
     _item("deeplabv3", "DeepLabV3+", "图像分割", source="tensorflow_pb",
           input_size=[513, 513], mean=(127.5, 127.5, 127.5),
           std=(127.5, 127.5, 127.5), precisions=("fp", "i8"),
@@ -158,7 +164,9 @@ CATALOG = [
     _item("yolov8_seg", "YOLOv8 Seg", "实例分割", example="yolov8_seg", source="pt",
           input_size=[640, 640], precisions=("fp", "i8"), weight_formats=(".pt",),
           exporter_ready=True, postprocess_ready=True, verified=True,
-          notes="使用 airockchip/ultralytics_yolov8 的 13 路 RKNN 友好导出；显式 YoloV8Seg 返回框与原图尺寸实例掩码；已完成 RK3588 FP 验收。"),
+          notes="使用 airockchip/ultralytics_yolov8 的 13 路 RKNN 友好导出；显式 YoloV8Seg 返回框与原图尺寸实例掩码；已完成 RK3588 FP 验收。",
+          sophon_platforms=SOPHON_PLATFORMS, sophon_precisions=("f32", "f16", "bf16", "i8"),
+          sophon_notes="SOPHGO path maps to sophon-demo YOLOv8_plus_seg."),
     _item("ppseg", "PP-LiteSeg", "图像分割", source="pdparams", input_size=[512, 512],
           mean=(123.675, 116.28, 103.53), std=(58.395, 57.12, 57.375),
           weight_formats=(".pdparams",), exporter_ready=True, postprocess_ready=True,

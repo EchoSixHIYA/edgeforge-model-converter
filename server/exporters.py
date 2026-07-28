@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .catalog import BY_ID
+
 
 class ArchitectureExporters:
     ROCKCHIP_REPOS = {
@@ -37,7 +39,8 @@ class ArchitectureExporters:
             if architecture == "yolo_world":
                 return suffix.lower() == ".pth"
             return suffix.lower() == ".pt" and architecture in {
-                "yolov5", "yolov7", "yolov8", "yolov10", "yolo11",
+                "yolov5", "yolov7", "yolov8", "yolov8_seg", "yolov8_pose",
+                "yolov8_obb", "yolov10", "yolo11",
             }
         if vendor != "rockchip":
             return False
@@ -65,7 +68,7 @@ class ArchitectureExporters:
         if not self.supports(architecture, source.suffix, vendor):
             raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传模型目录声明的原始权重格式")
         if vendor == "sophon":
-            return self._export_sophon_yolo(source, work, architecture, progress)
+            return self._export_sophon_yolo(source, work, architecture, progress, BY_ID[architecture])
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
             model_name = "mobilenet_v2" if architecture == "mobilenet" else "resnet50"
@@ -312,9 +315,12 @@ class ArchitectureExporters:
         shutil.copy2(candidates[0], output)
         return output
 
-    def _export_sophon_yolo(self, source, work, architecture, progress):
+    def _export_sophon_yolo(self, source, work, architecture, progress, cfg):
         metadata = work / "export_metadata.json"
         output = work / "model.onnx"
+        support = cfg.get("vendor_support", {}).get("sophon", {})
+        input_size = support.get("input_size") or cfg.get("input_size") or [640, 640]
+        imgsz = str(int(input_size[0]))
         progress(24, f"Exporting {architecture.upper()} to SOPHGO-friendly ONNX")
         if architecture == "yolo_world":
             detector = work / "detector.onnx"
@@ -356,12 +362,14 @@ class ArchitectureExporters:
                 "-n", variant, "-c", str(source.resolve()), "--no-onnxsim",
             ], repo)
             return output
-        if architecture in {"yolov8", "yolo11"}:
+        if architecture in {"yolov8", "yolov8_seg", "yolov8_pose", "yolov8_obb", "yolo11"}:
             repo = self.repos / ("yolov8" if architecture == "yolov8" else "yolo11")
+            if architecture.startswith("yolov8_"):
+                repo = self.repos / "yolov8"
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),
-                "--format", "onnx", "--opset", "17", "--imgsz", "640",
+                "--format", "onnx", "--opset", "17", "--imgsz", imgsz,
                 "--metadata", str(metadata),
             ], repo)
         elif architecture == "yolov10":
@@ -369,7 +377,7 @@ class ArchitectureExporters:
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),
-                "--format", "onnx", "--opset", "17", "--imgsz", "640",
+                "--format", "onnx", "--opset", "17", "--imgsz", imgsz,
                 "--metadata", str(metadata),
             ], repo)
         elif architecture == "yolov5":

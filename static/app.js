@@ -15,7 +15,7 @@ function syncOptions() {
   const support = vendorSupport[selectedVendor] || {};
   const allowed = support.platforms || JSON.parse(option.dataset.platforms || '[]');
   const formats = JSON.parse(option.dataset.formats || '[]');
-  const size = JSON.parse(option.dataset.size || '[640,640]');
+  const size = support.input_size || JSON.parse(option.dataset.size || '[640,640]');
   const precisions = support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
   [...arch.options].forEach(item => {
     const itemSupport = JSON.parse(item.dataset.vendorSupport || '{}');

@@ -45,7 +45,7 @@ class BModelBackend(ConversionBackend):
             "model_transform.py",
             "--model_name", model_name,
             "--model_def", str(Path(source).resolve()),
-            "--input_shapes", self._input_shapes(cfg["id"], component),
+            "--input_shapes", self._input_shapes(cfg["id"], cfg.get("input_size", [640, 640]), component),
             "--mlir", str(mlir),
         ]
         if component != "text":
@@ -101,6 +101,9 @@ class BModelBackend(ConversionBackend):
             "yolov5": "yolov5",
             "yolov7": "yolov7",
             "yolov8": "yolov8",
+            "yolov8_seg": "yolov8s-seg",
+            "yolov8_pose": "yolov8s-pose",
+            "yolov8_obb": "yolov8s-obb",
             "yolov10": "yolov10",
             "yolo11": "yolo11",
             "yolox": "yolox",
@@ -108,12 +111,13 @@ class BModelBackend(ConversionBackend):
         }.get(architecture, fallback)
 
     @staticmethod
-    def _input_shapes(architecture, component="model"):
+    def _input_shapes(architecture, input_size, component="model"):
         if architecture == "yolo_world" and component == "text":
             return "[[1,20]]"
         if architecture == "yolo_world":
             return "[[1,3,640,640],[1,80,512]]"
-        return "[[1,3,640,640]]"
+        width, height = [int(value) for value in input_size]
+        return f"[[1,3,{height},{width}]]"
 
     @staticmethod
     def _mean(cfg):
