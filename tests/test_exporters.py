@@ -164,6 +164,15 @@ def test_bmodel_backend_uses_vendor_input_size_for_obb(monkeypatch, tmp_path):
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,1024,1024]]"
 
 
+def test_sophon_setup_script_documents_required_tools():
+    script = Path(__file__).resolve().parents[1] / "scripts" / "setup_sophon.sh"
+    body = script.read_text(encoding="utf-8")
+    assert "https://github.com/sophgo/sophon-demo.git" in body
+    assert "model_transform.py" in body
+    assert "model_deploy.py" in body
+    assert "sophon.sail" in body
+
+
 def test_retinaface_decodes_box_and_five_landmarks():
     import numpy as np
     from sdk_template.edgeforge_sdk.model import _postprocess_retinaface

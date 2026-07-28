@@ -54,6 +54,16 @@ RKNN Model Zoo 的“支持模型”表示官方提供了友好 ONNX 与部署�
 
 在 `server/backends/` 实现 `ConversionBackend`，声明输出后缀并在 `Pipeline.__init__` 注册即可。任务、SSE、产物下载和 SDK 清单均与 RKNN 解耦；前端会通过 `/api/catalog` 逐步改为动态展示新后端。
 
+## SOPHGO BM1684X
+
+SOPHGO/BModel 链路独立于 RKNN 主安装脚本。进入官方 TPU-MLIR 环境后运行：
+
+```bash
+bash scripts/setup_sophon.sh
+```
+
+脚本会准备 `vendor/sophon-demo` 并检查 `model_transform.py`、`model_deploy.py`、`sophon.sail` 是否可用；已有官方仓库时可用 `SOPHON_DEMO=/path/to/sophon-demo bash scripts/setup_sophon.sh`。
+
 ## 测试
 
 ```bash

@@ -43,6 +43,7 @@ class Pipeline:
     def __init__(self, root):
         self.root = Path(root)
         self.model_zoo = Path(os.environ.get("RKNN_MODEL_ZOO", self.root / "vendor" / "rknn_model_zoo"))
+        self.sophon_demo = Path(os.environ.get("SOPHON_DEMO", self.root / "vendor" / "sophon-demo"))
         self.yolov10_repo = Path(os.environ.get("RKNN_YOLOV10", self.root / "vendor" / "yolov10"))
         self.exporters = ArchitectureExporters(self.root)
         self.backends = BackendRegistry()
@@ -153,7 +154,7 @@ class Pipeline:
             shutil.rmtree(cache_dir)
         for bytecode in stage.rglob("*.pyc"):
             bytecode.unlink()
-        example = self.model_zoo / "examples" / cfg["example"]
+        example = self._reference_example(task, cfg)
         reference = stage / "reference"
         if cfg["id"] == "ppocr" and example.parent.is_dir():
             shutil.copytree(example.parent, reference, dirs_exist_ok=True)
@@ -283,6 +284,23 @@ class Pipeline:
         archive = work / f"{cfg['id']}_{task['platform']}_{task['precision']}_sdk.zip"
         shutil.make_archive(str(archive.with_suffix("")), "zip", stage)
         return archive
+
+    def _reference_example(self, task, cfg):
+        if task["vendor"] == "sophon":
+            mapping = {
+                "yolov5": "YOLOv5",
+                "yolov7": "YOLOv7",
+                "yolov8": "YOLOv8_plus_det",
+                "yolov8_seg": "YOLOv8_plus_seg",
+                "yolov8_pose": "YOLOv8_pose",
+                "yolov8_obb": "YOLOv8_plus_obb",
+                "yolov10": "YOLOv10",
+                "yolo11": "YOLOv11_det",
+                "yolox": "YOLOX",
+                "yolo_world": "YOLO_world_v2",
+            }
+            return self.sophon_demo / "sample" / mapping.get(cfg["id"], cfg["example"])
+        return self.model_zoo / "examples" / cfg["example"]
 
     @staticmethod
     def _extract_export_metadata(work):

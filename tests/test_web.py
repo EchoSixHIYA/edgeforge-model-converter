@@ -138,6 +138,31 @@ def test_generated_sdk_contains_runnable_example_assets(tmp_path):
         assert json.loads(package.read("model/config.json")) == config
 
 
+def test_sophon_package_uses_sophon_demo_reference(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    pipeline = Pipeline(root)
+    pipeline.sophon_demo = tmp_path / "sophon-demo"
+    sample = pipeline.sophon_demo / "sample" / "YOLOv8_plus_obb"
+    (sample / "python").mkdir(parents=True)
+    (sample / "python" / "README.md").write_text("sophon obb reference", encoding="utf-8")
+    onnx_path = tmp_path / "model.onnx"
+    bmodel_path = tmp_path / "model.bmodel"
+    onnx_path.write_bytes(b"onnx")
+    bmodel_path.write_bytes(b"bmodel")
+    task = {"platform": "bm1684x", "precision": "f16", "vendor": "sophon", "backend": "bmodel"}
+
+    archive = pipeline._package_sdk(
+        task, BY_ID["yolov8_obb"], {"model": onnx_path}, {"model": bmodel_path}, tmp_path)
+
+    with zipfile.ZipFile(archive) as package:
+        names = set(package.namelist())
+        assert "reference/python/README.md" in names
+        assert "edgeforge_sdk/model.bmodel" in names
+        config = json.loads(package.read("edgeforge_sdk/config.json"))
+        assert config["vendor"] == "sophon"
+        assert config["backend"] == "bmodel"
+
+
 def test_rejects_unknown_architecture(tmp_path):
     app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
     response = app.test_client().post("/api/tasks", data={

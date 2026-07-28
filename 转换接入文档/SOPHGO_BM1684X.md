@@ -50,6 +50,14 @@ INT8 必须上传校准图片 ZIP。服务端会解压并生成 `dataset.txt`，
 - `run_calibration.py`，仅 INT8 需要
 - `model_deploy.py`
 
+准备官方样例仓库并检查当前 shell 是否已进入 TPU-MLIR/SAIL 环境：
+
+```bash
+bash scripts/setup_sophon.sh
+```
+
+脚本会把 `sophgo/sophon-demo` 克隆到 `vendor/sophon-demo`。也可以通过 `SOPHON_DEMO=/path/to/sophon-demo bash scripts/setup_sophon.sh` 使用已有仓库。TPU-MLIR 和 SOPHON-SAIL 仍以官方安装方式为准，脚本只做仓库准备和命令自检，不把算能编译器装进主服务 venv。
+
 板端运行 `.bmodel` 需要安装 SOPHON-SAIL Python 包。统一 SDK 会根据模型文件后缀自动选择运行时：
 
 - `.rknn` 使用 RKNNLite/RKNN Runtime
