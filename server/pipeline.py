@@ -273,15 +273,21 @@ class Pipeline:
                                    if len(onnx_models) > 1 else f"model/{primary_onnx.name}"),
         }
         (stage / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        backend_format = "BModel" if task["backend"] == "bmodel" else "RKNN"
+        runtime_note = (
+            "install.sh：安装 EdgeForge SDK；BModel 推理还需要板端已安装官方 SOPHON-SAIL\n"
+            if task["backend"] == "bmodel" else
+            "install.sh：板端 RKNN-Toolkit-Lite2 与 SDK 一键安装脚本\n"
+        )
         (stage / "使用说明.txt").write_text(
             f"{cfg['name']} 部署 SDK\n目标: {task['platform']} / {task['precision']}\n\n"
             "edgeforge_sdk/：统一可调用 Python SDK（load/predict/infer_raw/draw）\n"
             f"显式入口：from edgeforge_sdk import {sdk_class}\n"
             f"example.py：最小调用示例（默认读取随包附带的 {demo_name}）\n"
-            "install.sh：板端 RKNN-Toolkit-Lite2 与 SDK 一键安装脚本\n"
+            f"{runtime_note}"
             f"{demo_name}：可直接运行示例的演示输入\nSDK_README.md：安装与接口文档\n"
             "reference/：用于核对的官方 Python/C++ 示例，不是主调用入口\n"
-            "model/：RKNN 与内部 ONNX 产物\nmanifest.json：机器可读构建信息\n",
+            f"model/：{backend_format} 与内部 ONNX 产物\nmanifest.json：机器可读构建信息\n",
             encoding="utf-8")
         archive = work / f"{cfg['id']}_{task['platform']}_{task['precision']}_sdk.zip"
         shutil.make_archive(str(archive.with_suffix("")), "zip", stage)

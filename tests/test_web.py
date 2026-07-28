@@ -158,6 +158,16 @@ def test_sophon_package_uses_sophon_demo_reference(tmp_path):
         names = set(package.namelist())
         assert "reference/python/README.md" in names
         assert "edgeforge_sdk/model.bmodel" in names
+        readme = package.read("SDK_README.md").decode("utf-8")
+        usage = package.read("使用说明.txt").decode("utf-8")
+        installer = package.read("install.sh").decode("utf-8")
+        assert ".rknn` / `.bmodel`" in readme
+        assert "SOPHON-SAIL" in readme
+        assert "BModel" in usage
+        assert "SOPHON-SAIL" in usage
+        assert "BMODELS=" in installer
+        assert "RKNN_MODELS=" in installer
+        assert "sophon.sail" in installer
         config = json.loads(package.read("edgeforge_sdk/config.json"))
         assert config["vendor"] == "sophon"
         assert config["backend"] == "bmodel"

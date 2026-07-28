@@ -195,6 +195,16 @@ def test_sophon_setup_script_documents_required_tools():
     assert "sophon.sail" in body
 
 
+def test_sdk_installer_branches_by_compiled_model_type():
+    script = Path(__file__).resolve().parents[1] / "sdk_template" / "install.sh"
+    body = script.read_text(encoding="utf-8")
+    assert 'RKNN_MODELS=(' in body
+    assert 'BMODELS=(' in body
+    assert 'if ((${#RKNN_MODELS[@]})); then' in body
+    assert 'if ((${#BMODELS[@]})); then' in body
+    assert "sophon.sail" in body
+
+
 def test_retinaface_decodes_box_and_five_landmarks():
     import numpy as np
     from sdk_template.edgeforge_sdk.model import _postprocess_retinaface

@@ -1,6 +1,6 @@
 # EdgeForge 通用模型 SDK
 
-`edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个或一组 `.rknn` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
+`edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个或一组 `.rknn` / `.bmodel` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
 
 ```python
 from edgeforge_sdk import YoloV10
@@ -9,11 +9,11 @@ from edgeforge_sdk import YoloV10
 model = YoloV10("/opt/models/yolov10")
 ```
 
-显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloWorld`、`YoloX`、`PPYoloE`、`PPOCR`、`CLIP`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸 RKNN 不包含完整标签、字符表、tokenizer、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
+显式类包括 `YoloV5`、`YoloV5Seg`、`YoloV6`、`YoloV7`、`YoloV8`、`YoloV8Seg`、`YoloV8Pose`、`YoloV8Obb`、`YoloV10`、`Yolo11`、`YoloWorld`、`YoloX`、`PPYoloE`、`PPOCR`、`CLIP`、`PPLiteSeg`、`DeepLabV3Plus`、`MobileSAM`、`MobileNetV2`、`ResNet50`、`RetinaFace`、`LPRNet` 和 `YAMNet`。不同类使用各自的预处理和后处理。裸模型文件不包含完整标签、字符表、tokenizer、颜色表、anchors 和任务契约，必须和 `config.json` 一起复制；不同路径可用 `config_path=` 指定。
 
 ## 安装
 
-SDK 已附带 RKNN-Toolkit-Lite2 2.3.2 的六个 aarch64 离线 wheel（CPython 3.7–3.12）。一键脚本启用 SDK 支持的 CPython 3.8–3.12。在 RK3588 等 64 位 Linux 板端解压后执行：
+SDK 已附带 RKNN-Toolkit-Lite2 2.3.2 的六个 aarch64 离线 wheel（CPython 3.7–3.12），用于 `.rknn` 包。一键脚本启用 SDK 支持的 CPython 3.8–3.12。在板端解压后执行：
 
 ```bash
 bash install.sh
@@ -22,7 +22,7 @@ bash install.sh
 
 如果已经激活虚拟环境，`install.sh` 会直接安装到当前环境；否则会在 SDK 根目录自动创建 `.venv`。也可用 `EDGEFORGE_VENV=/指定路径 bash install.sh` 指定环境目录。安装器会校验 wheel、按 Python 版本自动选择文件，并安装 SDK 的 NumPy、OpenCV 等依赖。
 
-随包 wheel 只负责 Python 侧 RKNNLite。板卡固件中的 `librknnrt.so` 和 NPU 驱动仍由系统提供，安装脚本不会替换系统库；若模型编译器与板端运行库版本不同，运行时会给出兼容性警告。
+随包 wheel 只负责 Python 侧 RKNNLite，并且只有包内存在 `.rknn` 时才会安装。板卡固件中的 `librknnrt.so` 和 NPU 驱动仍由系统提供，安装脚本不会替换系统库；若模型编译器与板端运行库版本不同，运行时会给出兼容性警告。
 
 SOPHGO BM1684X 的 `.bmodel` 包也使用同一套显式类入口；板端需要系统或虚拟环境中已安装官方 SOPHON-SAIL Python 包。SDK 根据 `.rknn` / `.bmodel` 后缀自动选择 RKNNLite 或 `sophon.sail.Engine`，不需要安装第二个 EdgeForge SDK。
 
@@ -43,7 +43,7 @@ with YoloV10("model") as model:
 
 ## `load()`
 
-`load()` 加载模型包中的 RKNN 并初始化 NPU，成功后返回当前显式模型实例。重复调用不会重复初始化；`predict()`/`infer_raw()` 会自动调用。需要预热时可显式调用，结束后调用 `close()`。
+`load()` 加载模型包中的已编译模型并初始化 NPU，成功后返回当前显式模型实例。`.rknn` 使用 RKNNLite/RKNN Runtime，`.bmodel` 使用 SOPHON-SAIL。重复调用不会重复初始化；`predict()`/`infer_raw()` 会自动调用。需要预热时可显式调用，结束后调用 `close()`。
 
 ```python
 model = YoloV10(model_path="other.rknn", config_path="other.json", target="rk3588")
