@@ -6,6 +6,15 @@ cd "$ROOT"
 
 mkdir -p vendor data/tasks
 
+SOPHON_VENV="${SOPHON_VENV:-/home/$(id -un)/.edgeforge-sophon-compiler-venv-py310}"
+if [[ ! -x "$SOPHON_VENV/bin/model_transform.py" ]]; then
+  python3.10 -m venv "$SOPHON_VENV"
+  "$SOPHON_VENV/bin/python" -m pip install --upgrade pip wheel 'setuptools<81'
+  CC="${CC:-gcc}" CXX="${CXX:-g++}" "$SOPHON_VENV/bin/python" -m pip install \
+    tpu_mlir==1.28.1 onnx==1.14.1 onnxsim psutil flatbuffers
+fi
+export PATH="$SOPHON_VENV/bin:$PATH"
+
 SOPHON_DEMO_DIR="${SOPHON_DEMO:-$ROOT/vendor/sophon-demo}"
 if [[ ! -d "$SOPHON_DEMO_DIR/.git" ]]; then
   if [[ -e "$SOPHON_DEMO_DIR" ]]; then

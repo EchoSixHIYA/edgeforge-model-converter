@@ -1,0 +1,13 @@
+# Mirrors Rockchip RKNN-Toolkit2 2.3.2 requirements for CPython 3.10.
+# Keep torch out of this file so setup_wsl.sh can install the CPU-only wheel
+# instead of pulling CUDA packages from the default PyPI index.
+protobuf>=4.21.6,<=4.25.4
+psutil>=5.9.0
+ruamel.yaml>=0.17.21
+scipy>=1.9.3
+tqdm>=4.64.1
+opencv-python>=4.5.5.64
+fast-histogram>=0.11
+numpy<=1.26.4
+onnx>=1.16.1
+onnxruntime>=1.10.0

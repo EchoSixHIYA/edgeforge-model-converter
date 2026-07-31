@@ -3,10 +3,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-VENV_DIR="/home/$(id -un)/.edgeforge-model-converter-venv"
-python3 -m venv "$VENV_DIR"
+
+PYTHON_BIN="${PYTHON_BIN:-python3.10}"
+PY_TAG="$("$PYTHON_BIN" - <<'PY'
+import sys
+print(f"cp{sys.version_info.major}{sys.version_info.minor}")
+PY
+)"
+VENV_DIR="${VENV_DIR:-/home/$(id -un)/.edgeforge-model-converter-venv-py310}"
+"$PYTHON_BIN" -m venv "$VENV_DIR"
 . "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip wheel 'setuptools<81'
 python -m pip install -r requirements.txt
 
 mkdir -p vendor wheels data/tasks
@@ -91,7 +98,7 @@ python3 -m venv "$PPYOLOE_VENV"
   visualdl opencv-python==4.6.0.66 PyYAML shapely scipy terminaltables Cython pycocotools \
   scikit-learn prettytable filelock
 
-# YAMNet accepts an original TensorFlow SavedModel ZIP.  Keep its pinned
+# YAMNet accepts an original TensorFlow SavedModel ZIP. Keep its pinned
 # conversion stack isolated from the site's RKNN/PyTorch environment.
 YAMNET_VENV="/home/$(id -un)/.edgeforge-yamnet-export-venv"
 python3 -m venv "$YAMNET_VENV"
@@ -101,12 +108,12 @@ python3 -m venv "$YAMNET_VENV"
   tensorflow==2.13.1 tensorflow_hub==0.16.1 tf2onnx==1.16.1
 
 # YOLO-World's official OpenMMLab exporter requires the MMCV binary built for
-# Torch 2.0.  Keep it isolated until the final exporter-runtime consolidation.
+# Torch 2.0. Keep it isolated until the final exporter-runtime consolidation.
 YOLO_WORLD_VENV="/home/$(id -un)/.edgeforge-yolo-world-export-venv"
 python3 -m venv "$YOLO_WORLD_VENV"
 "$YOLO_WORLD_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
 "$YOLO_WORLD_VENV/bin/python" -m pip install \
-  torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cpu
+  torch==2.0.1+cpu torchvision==0.15.2+cpu --index-url https://download.pytorch.org/whl/cpu
 "$YOLO_WORLD_VENV/bin/python" -m pip install \
   mmcv==2.0.0 -f https://download.openmmlab.com/mmcv/dist/cpu/torch2.0/index.html
 "$YOLO_WORLD_VENV/bin/python" -m pip install \
@@ -116,15 +123,19 @@ python3 -m venv "$YOLO_WORLD_VENV"
   -e vendor/exporters/yolo_world/third_party/mmyolo -e vendor/exporters/yolo_world
 
 shopt -s nullglob
-rknn_wheels=(wheels/rknn_toolkit2*.whl wheels/rknn-toolkit2*.whl)
+rknn_wheels=(wheels/rknn_toolkit2*-"$PY_TAG"-*.whl wheels/rknn-toolkit2*-"$PY_TAG"-*.whl)
 if ((${#rknn_wheels[@]})); then
-  python -m pip install -r requirements-rknn-cp38.txt
-  python -m pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu
-  python -m pip install torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cpu
+  rknn_requirements="requirements-rknn-$PY_TAG.txt"
+  if [[ -f "$rknn_requirements" ]]; then
+    python -m pip install -r "$rknn_requirements"
+  else
+    echo "Notice: missing $rknn_requirements; installing only dependencies declared by the RKNN wheel."
+  fi
+  python -m pip install torch==2.4.0+cpu torchvision==0.19.0+cpu --index-url https://download.pytorch.org/whl/cpu
   python -m pip install "${rknn_wheels[@]}"
 else
-  echo "提示: wheels/ 中没有 RKNN-Toolkit2 官方 wheel；网站可启动，但真正转换前需要安装它。"
+  echo "Notice: no RKNN-Toolkit2 wheel in wheels/ matches $PY_TAG; the site can start, but real RK conversion requires it."
 fi
 
 python -m pip install -e vendor/yolov10
-echo "环境已准备。启动: $VENV_DIR/bin/gunicorn -b 0.0.0.0:5000 --workers 1 --threads 8 --timeout 3600 app:app"
+echo "Environment is ready. Start with: scripts/start_wsl.sh"
