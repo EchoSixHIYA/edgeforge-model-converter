@@ -85,10 +85,14 @@ SOPHON_MODELS = {
     "ppocr": {
         "sample": "PP-OCR", "bmodel_name": "ch_PP-OCRv4",
         "input_size": [640, 640], "weight_suffixes": (".zip",),
-        "component_names": {"det": "ch_PP-OCRv4_det", "rec": "ch_PP-OCRv4_rec"},
+        "component_names": {
+            "det": "ch_PP-OCRv4_det",
+            "cls": "ch_PP-OCRv4_cls",
+            "rec": "ch_PP-OCRv4_rec",
+        },
         "notes": (
-            "sophon-demo PP-OCR compiles det and rec ONNX models with TPU-MLIR; "
-            "det uses [1,3,640,640], rec uses [1,3,48,320] in the first EdgeForge path."
+            "sophon-demo PP-OCR compiles det, optional angle cls, and rec ONNX models with TPU-MLIR; "
+            "det uses [1,3,640,640], cls uses [1,3,48,192], rec uses [1,3,48,320]."
         ),
     },
 }

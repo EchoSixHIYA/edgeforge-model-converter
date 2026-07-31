@@ -179,6 +179,7 @@ class ArchitectureExporters:
             return {"encoder": encoder, "decoder": decoder}
         if architecture == "ppocr":
             det = work / "det.onnx"
+            cls = work / "cls.onnx"
             rec = work / "rec.onnx"
             paddle_python = Path(os.environ.get(
                 "EDGEFORGE_PPOCR_PYTHON", os.environ.get(
@@ -191,12 +192,15 @@ class ArchitectureExporters:
             progress(24, "从 PP-OCRv4 官方 Paddle 推理包导出固定尺寸检测与识别 ONNX")
             self._run([
                 str(paddle_python), str(self.root / "server" / "ppocr_export_worker.py"),
-                "--model", str(source.resolve()), "--det", str(det), "--rec", str(rec),
+                "--model", str(source.resolve()), "--det", str(det), "--cls", str(cls), "--rec", str(rec),
                 "--metadata", str(work / "export_metadata.json"),
                 "--dictionary", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
                                     "PPOCR" / "PPOCR-Rec" / "model" / "ppocr_keys_v1.txt"),
             ], self.root)
-            return {"det": det, "rec": rec}
+            outputs = {"det": det, "rec": rec}
+            if cls.is_file():
+                outputs = {"det": det, "cls": cls, "rec": rec}
+            return outputs
         if architecture == "clip":
             image_model = work / "image.onnx"
             text_model = work / "text.onnx"
@@ -314,6 +318,7 @@ class ArchitectureExporters:
 
     def _export_ppocr(self, source, work, progress, det_input_size=480):
         det = work / "det.onnx"
+        cls = work / "cls.onnx"
         rec = work / "rec.onnx"
         paddle_python = Path(os.environ.get(
             "EDGEFORGE_PPOCR_PYTHON", os.environ.get(
@@ -326,13 +331,16 @@ class ArchitectureExporters:
         progress(24, "从 PP-OCRv4 官方 Paddle 推理包导出固定尺寸检测与识别 ONNX")
         self._run([
             str(paddle_python), str(self.root / "server" / "ppocr_export_worker.py"),
-            "--model", str(source.resolve()), "--det", str(det), "--rec", str(rec),
+            "--model", str(source.resolve()), "--det", str(det), "--cls", str(cls), "--rec", str(rec),
             "--metadata", str(work / "export_metadata.json"),
             "--dictionary", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
                                 "PPOCR" / "PPOCR-Rec" / "model" / "ppocr_keys_v1.txt"),
             "--det-input-size", str(int(det_input_size)),
         ], self.root)
-        return {"det": det, "rec": rec}
+        outputs = {"det": det, "rec": rec}
+        if cls.is_file():
+            outputs = {"det": det, "cls": cls, "rec": rec}
+        return outputs
 
     def _export_sophon_yolo(self, source, work, architecture, progress, cfg):
         metadata = work / "export_metadata.json"

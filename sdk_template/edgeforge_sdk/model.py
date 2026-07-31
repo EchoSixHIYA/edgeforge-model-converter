@@ -1536,14 +1536,15 @@ class MobileSAM(_ModelBase):
 
 
 class PPOCR(MobileSAM):
-    """PP-OCRv4 detector/recognizer pipeline with structured text regions."""
+    """PP-OCRv4 detector/optional angle-classifier/recognizer pipeline."""
 
     architecture = "ppocr"
 
     def _component_paths(self):
         files = self.config.get("model_files")
-        if set(files or {}) != {"det", "rec"}:
-            raise ValueError("PPOCR config must declare det and rec model_files")
+        declared = set(files or {})
+        if not {"det", "rec"}.issubset(declared) or not declared.issubset({"det", "cls", "rec"}):
+            raise ValueError("PPOCR config must declare det and rec model_files; cls is optional")
         base = self.model_path if self.model_path.is_dir() else self.config_path.parent
         paths = {name: base / filename for name, filename in files.items()}
         missing = [str(path) for path in paths.values() if not path.is_file()]
@@ -1552,10 +1553,12 @@ class PPOCR(MobileSAM):
         return paths
 
     def infer_raw(self, inputs, *, component):
-        """Run the ``det`` or ``rec`` component and return untouched outputs."""
-        if component not in {"det", "rec"}:
-            raise ValueError("PPOCR component must be 'det' or 'rec'")
+        """Run the ``det``, ``cls`` or ``rec`` component and return untouched outputs."""
+        if component not in {"det", "cls", "rec"}:
+            raise ValueError("PPOCR component must be 'det', 'cls' or 'rec'")
         self.load()
+        if component not in self.engines:
+            raise ValueError(f"PPOCR package does not include the optional {component!r} component")
         values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
         if self._component_runtimes.get(component) == "sail":
             runner = self.engines[component]
@@ -1584,18 +1587,35 @@ class PPOCR(MobileSAM):
             raise ValueError(f"PPOCR {component} expected one output, got {len(outputs)}")
         if component == "det":
             return _ppocr_db_boxes(outputs[0], context["original_shape"])
+        if component == "cls":
+            logits = np.asarray(outputs[0], dtype=np.float32).reshape(-1)
+            if logits.size < 2:
+                raise ValueError(f"PPOCR cls expected at least 2 logits, got {logits.shape}")
+            probs = np.exp(logits - logits.max())
+            probs = probs / max(float(probs.sum()), 1e-12)
+            index = int(probs.argmax())
+            return {"label": "180" if index == 1 else "0", "score": float(probs[index]), "index": index}
         if component == "rec":
             return _ppocr_ctc(outputs[0], self.config.get("characters", []))
-        raise ValueError("PPOCR component must be 'det' or 'rec'")
+        raise ValueError("PPOCR component must be 'det', 'cls' or 'rec'")
 
-    def predict(self, source, *, confidence=.5, **_):
+    def predict(self, source, *, confidence=.5, cls_threshold=.9, **_):
         det_tensor, context = self.preprocess(source)
         boxes = self.postprocess(
             self.infer_raw(det_tensor, component="det"), context, component="det")
         results = []
+        has_cls = "cls" in self.config.get("model_files", {})
+        cls_width, cls_height = self.config.get("cls_input_size", [192, 48])
         rec_width, rec_height = self.config.get("rec_input_size", [320, 48])
         for box in boxes:
             crop = _ppocr_crop(context["original_image"], box)
+            if has_cls:
+                cls_image = cv2.resize(crop, (cls_width, cls_height), interpolation=cv2.INTER_LINEAR)
+                cls_tensor = np.expand_dims(cls_image.astype(np.float32) / 255.0, 0)
+                cls_result = self.postprocess(
+                    self.infer_raw(cls_tensor, component="cls"), {}, component="cls")
+                if cls_result["label"] == "180" and cls_result["score"] >= cls_threshold:
+                    crop = cv2.rotate(crop, cv2.ROTATE_180)
             resized = cv2.resize(crop, (rec_width, rec_height), interpolation=cv2.INTER_LINEAR)
             rec_tensor = np.expand_dims(resized.astype(np.float32) / 255.0, 0)
             text, score = self.postprocess(

@@ -11,7 +11,9 @@ if [[ ! -x "$SOPHON_VENV/bin/model_transform.py" ]]; then
   python3.10 -m venv "$SOPHON_VENV"
   "$SOPHON_VENV/bin/python" -m pip install --upgrade pip wheel 'setuptools<81'
   CC="${CC:-gcc}" CXX="${CXX:-g++}" "$SOPHON_VENV/bin/python" -m pip install \
-    tpu_mlir==1.28.1 onnx==1.14.1 onnxsim psutil flatbuffers
+    tpu_mlir==1.28.1 onnx==1.14.1 onnxruntime==1.19.2 onnxsim psutil flatbuffers
+  "$SOPHON_VENV/bin/python" -m pip install torch==2.4.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
 fi
 export PATH="$SOPHON_VENV/bin:$PATH"
 

@@ -124,6 +124,8 @@ class BModelBackend(ConversionBackend):
             return "[[1,3,640,640],[1,80,512]]"
         if architecture == "ppocr" and component == "rec":
             return "[[1,3,48,320]]"
+        if architecture == "ppocr" and component == "cls":
+            return "[[1,3,48,192]]"
         width, height = [int(value) for value in input_size]
         return f"[[1,3,{height},{width}]]"
 

@@ -93,7 +93,7 @@ class Pipeline:
                 options["calibration_dir"] = str(work / "calibration")
             if cfg["id"] == "mobilesam" and component == "decoder":
                 options["fuse_normalization"] = False
-            if cfg["id"] == "ppocr" and component == "rec":
+            if cfg["id"] == "ppocr" and component in {"cls", "rec"}:
                 options["fuse_normalization"] = False
             if cfg["id"] == "clip" and component == "text":
                 options["fuse_normalization"] = False
@@ -172,6 +172,8 @@ class Pipeline:
 
     def _package_sdk(self, task, cfg, onnx_models, outputs, work):
         stage = work / "sdk"
+        if stage.is_dir():
+            shutil.rmtree(stage)
         stage.mkdir(exist_ok=True)
         shutil.copytree(self.root / "sdk_template", stage, dirs_exist_ok=True)
         for cache_dir in stage.rglob("__pycache__"):
@@ -180,8 +182,8 @@ class Pipeline:
             bytecode.unlink()
         example = self._reference_example(task, cfg)
         reference = stage / "reference"
-        if cfg["id"] == "ppocr" and example.parent.is_dir():
-            shutil.copytree(example.parent, reference, dirs_exist_ok=True)
+        if cfg["id"] == "ppocr" and example.is_dir():
+            shutil.copytree(example, reference, dirs_exist_ok=True, ignore_dangling_symlinks=True)
         elif example.is_dir():
             for name in ("python", "cpp", "model", "README.md"):
                 src = example / name
@@ -223,7 +225,12 @@ class Pipeline:
             runtime_config["anchors"] = export_metadata["anchors"]
         if export_metadata.get("palette"):
             runtime_config["palette"] = export_metadata["palette"]
-        for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters", "sequence_length", "pad_token_id", "logit_scale", "tokenizer_directory", "num_classes"):
+        for key in (
+            "sample_rate", "sample_count", "chunk_seconds", "logit_resize",
+            "input_layout", "prompt_count", "cls_input_size", "rec_input_size",
+            "characters", "sequence_length", "pad_token_id", "logit_scale",
+            "tokenizer_directory", "num_classes", "source_archives",
+        ):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
         if cfg.get("sequence_length"):
