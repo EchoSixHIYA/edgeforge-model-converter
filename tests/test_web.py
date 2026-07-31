@@ -100,7 +100,7 @@ def test_verified_mobilenet_checkpoint_is_accepted(tmp_path):
 
 
 def test_sophon_yolo_task_is_accepted_with_bm1684x_precision(tmp_path):
-    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
     response = app.test_client().post("/api/tasks", data={
         "vendor": "sophon", "architecture": "yolov8", "platform": "bm1684x", "precision": "f16",
         "model": (io.BytesIO(b"weights"), "model.pt"),
@@ -112,7 +112,7 @@ def test_sophon_yolo_task_is_accepted_with_bm1684x_precision(tmp_path):
 
 
 def test_sophon_rejects_non_bm_platform(tmp_path):
-    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
     response = app.test_client().post("/api/tasks", data={
         "vendor": "sophon", "architecture": "yolov8", "platform": "rk3588", "precision": "f16",
         "model": (io.BytesIO(b"weights"), "model.pt"),
@@ -121,7 +121,7 @@ def test_sophon_rejects_non_bm_platform(tmp_path):
 
 
 def test_sophon_yolov8_obb_accepts_vendor_specific_size(tmp_path):
-    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
     response = app.test_client().post("/api/tasks", data={
         "vendor": "sophon", "architecture": "yolov8_obb", "platform": "bm1684x", "precision": "f16",
         "model": (io.BytesIO(b"weights"), "model.pt"),
@@ -131,7 +131,7 @@ def test_sophon_yolov8_obb_accepts_vendor_specific_size(tmp_path):
 
 
 def test_sophon_only_yolo_model_does_not_open_rockchip_entry(tmp_path):
-    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
     client = app.test_client()
     sophon = client.post("/api/tasks", data={
         "vendor": "sophon", "architecture": "yolov9", "platform": "bm1684x", "precision": "f16",
@@ -146,13 +146,29 @@ def test_sophon_only_yolo_model_does_not_open_rockchip_entry(tmp_path):
 
 
 def test_sophon_uses_vendor_specific_upload_formats(tmp_path):
-    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
     response = app.test_client().post("/api/tasks", data={
         "vendor": "sophon", "architecture": "yolox", "platform": "bm1684x", "precision": "f16",
         "model": (io.BytesIO(b"weights"), "model.pt"),
     })
     assert response.status_code == 400
     assert ".pth" in response.get_json()["error"]
+
+
+def test_sophon_task_requires_ready_compiler_environment(monkeypatch, tmp_path):
+    monkeypatch.setattr("server.web.shutil.which", lambda _: None)
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "ppocr", "platform": "bm1684x", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.zip"),
+    })
+
+    assert response.status_code == 400
+    error = response.get_json()["error"]
+    assert "SOPHGO BModel 转换环境未就绪" in error
+    assert "model_transform.py" in error
+    assert "model_deploy.py" in error
 
 
 def test_generated_sdk_contains_runnable_example_assets(tmp_path):
