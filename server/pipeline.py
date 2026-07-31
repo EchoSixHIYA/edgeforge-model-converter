@@ -207,6 +207,10 @@ class Pipeline:
         if tokenizer_dir.is_dir():
             shutil.copytree(tokenizer_dir, model_dir / "tokenizer", dirs_exist_ok=True)
             shutil.copytree(tokenizer_dir, stage / "edgeforge_sdk" / "tokenizer", dirs_exist_ok=True)
+        text_projection = work / "text_projection_512_512.npy"
+        if text_projection.is_file():
+            shutil.copy2(text_projection, model_dir / text_projection.name)
+            shutil.copy2(text_projection, stage / "edgeforge_sdk" / text_projection.name)
         export_metadata = self._extract_export_metadata(work)
         primary_onnx = next(iter(onnx_models.values()))
         labels = ([] if cfg["id"] == "mobilesam" else
@@ -229,7 +233,8 @@ class Pipeline:
             "sample_rate", "sample_count", "chunk_seconds", "logit_resize",
             "input_layout", "prompt_count", "cls_input_size", "rec_input_size",
             "characters", "sequence_length", "pad_token_id", "logit_scale",
-            "tokenizer_directory", "num_classes", "source_archives",
+            "token_pad_id", "text_projection", "tokenizer_directory", "num_classes", "source_archives",
+            "model_variant",
         ):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
@@ -262,6 +267,10 @@ class Pipeline:
             official_demo = example / "model" / demo_name
             if official_demo.is_file():
                 shutil.copy2(official_demo, stage / demo_name)
+            elif cfg["id"] == "yolo_world":
+                fallback_demo = self.model_zoo / "examples" / "yolo_world" / "model" / demo_name
+                if fallback_demo.is_file():
+                    shutil.copy2(fallback_demo, stage / demo_name)
         if cfg["id"] == "clip":
             example_text = (
                 f"from edgeforge_sdk import {sdk_class}\n\n"

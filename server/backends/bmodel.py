@@ -56,8 +56,6 @@ class BModelBackend(ConversionBackend):
                 "--keep_aspect_ratio",
                 "--pixel_format", cfg.get("color_order", "rgb").lower(),
             ])
-        if cfg["id"] == "yolo_world" and component == "detector":
-            command.extend(["--output_names", "output"])
         self._run(command, work)
 
         calibration_table = None

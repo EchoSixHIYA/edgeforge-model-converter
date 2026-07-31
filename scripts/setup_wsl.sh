@@ -122,6 +122,19 @@ python3 -m venv "$YOLO_WORLD_VENV"
 "$YOLO_WORLD_VENV/bin/python" -m pip install --no-build-isolation --no-deps \
   -e vendor/exporters/yolo_world/third_party/mmyolo -e vendor/exporters/yolo_world
 
+# SOPHGO YOLO-World v2 needs the CLIP text encoder exported with Torch 1.13.
+# Torch 2.x exports SDPA attention that TPU-MLIR can compile into a degraded
+# text tower, so keep this tiny exporter isolated from the OpenMMLab stack.
+YOLO_WORLD_CLIP_VENV="/home/$(id -un)/.edgeforge-yolo-world-clip-export-venv"
+python3 -m venv "$YOLO_WORLD_CLIP_VENV"
+"$YOLO_WORLD_CLIP_VENV/bin/python" -m pip install --upgrade pip setuptools==80.9.0 wheel
+"$YOLO_WORLD_CLIP_VENV/bin/python" -m pip install \
+  torch==1.13.1+cpu torchvision==0.14.1+cpu --index-url https://download.pytorch.org/whl/cpu
+"$YOLO_WORLD_CLIP_VENV/bin/python" -m pip install \
+  onnx==1.14.1 onnxsim==0.4.17 onnxruntime==1.16.3 ftfy regex "numpy<2" tqdm requests
+"$YOLO_WORLD_CLIP_VENV/bin/python" -m pip install \
+  git+https://github.com/openai/CLIP.git
+
 shopt -s nullglob
 rknn_wheels=(wheels/rknn_toolkit2*-"$PY_TAG"-*.whl wheels/rknn-toolkit2*-"$PY_TAG"-*.whl)
 if ((${#rknn_wheels[@]})); then

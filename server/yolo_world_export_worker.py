@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import torch
+import onnx
 from mmengine.config import Config
 from mmengine.runner import load_checkpoint
 from mmengine.utils import import_modules_from_strings
@@ -24,6 +25,23 @@ class TextEncoder(torch.nn.Module):
         return features / features.norm(p=2, dim=-1, keepdim=True)
 
 
+class ClipSequenceEncoder(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.token_embedding = model.token_embedding
+        self.positional_embedding = model.positional_embedding
+        self.transformer = model.transformer
+        self.ln_final = model.ln_final
+
+    def forward(self, input_ids):
+        features = self.token_embedding(input_ids).type(self.positional_embedding.dtype)
+        features = features + self.positional_embedding
+        features = features.permute(1, 0, 2)
+        features = self.transformer(features)
+        features = features.permute(1, 0, 2)
+        return self.ln_final(features).type(self.positional_embedding.dtype)
+
+
 class DetectorEncoder(torch.nn.Module):
     """Keep the Rockchip deployment switches while preserving dynamic outputs."""
 
@@ -33,8 +51,17 @@ class DetectorEncoder(torch.nn.Module):
 
     def forward(self, images, texts):
         base = self.deployed.baseModel
-        image_features = base.backbone.image_model(images)
-        neck_features = base.neck(image_features, texts)
+        if hasattr(base.backbone, "forward_image"):
+            image_features = base.backbone.forward_image(images)
+        else:
+            image_features = base.backbone.image_model(images)
+        if getattr(base, "with_neck", False):
+            if getattr(base, "mm_neck", False):
+                neck_features = base.neck(image_features, texts)
+            else:
+                neck_features = base.neck(image_features)
+        else:
+            neck_features = image_features
         head_features = base.bbox_head(neck_features, texts)
         outputs = []
         for class_scores, box_distances in zip(*head_features):
@@ -52,6 +79,8 @@ def parse_args():
     parser.add_argument("--text", required=True)
     parser.add_argument("--tokenizer-output", required=True)
     parser.add_argument("--metadata", required=True)
+    parser.add_argument("--sequence-length", type=int, default=20)
+    parser.add_argument("--clip-runtime", choices=("hf", "openai"), default="hf")
     return parser.parse_args()
 
 
@@ -76,8 +105,15 @@ def main():
         shutil.copytree(assets, local_assets)
         torch.save(text_state, local_assets / "pytorch_model.bin")
 
+        stem_channels = int(state.get("backbone.image_model.stem.conv.weight").shape[0])
+        variant_by_stem = {32: "s", 48: "m", 64: "l", 80: "x", 96: "xl"}
+        variant = variant_by_stem.get(stem_channels)
+        if not variant:
+            raise ValueError(
+                f"unsupported YOLO-World V2 stem width {stem_channels}; "
+                "expected one of 32/48/64/80/96")
         config_path = repo / "configs" / "pretrain" / (
-            "yolo_world_v2_s_vlpan_bn_2e-3_100e_4x8gpus_"
+            f"yolo_world_v2_{variant}_vlpan_bn_2e-3_100e_4x8gpus_"
             "obj365v1_goldg_train_lvis_minival.py")
         config = Config.fromfile(config_path)
         config.model.backbone.text_model.model_name = str(local_assets)
@@ -103,13 +139,43 @@ def main():
             detector, (image, texts), args.detector,
             input_names=["images", "texts"], output_names=output_names,
             opset_version=12, do_constant_folding=True)
+        detector_model = onnx.load(args.detector)
+        static_outputs = (
+            (1, len(labels), 80, 80), (1, 4, 80, 80),
+            (1, len(labels), 40, 40), (1, 4, 40, 40),
+            (1, len(labels), 20, 20), (1, 4, 20, 20),
+        )
+        for output, shape in zip(detector_model.graph.output, static_outputs):
+            tensor_shape = output.type.tensor_type.shape
+            tensor_shape.ClearField("dim")
+            for value in shape:
+                tensor_shape.dim.add().dim_value = int(value)
+        onnx.checker.check_model(detector_model)
+        onnx.save(detector_model, args.detector)
 
-        text_model = CLIPTextModelWithProjection.from_pretrained(local_assets).eval()
-        text_encoder = TextEncoder(text_model).eval()
-        input_ids = torch.full((1, 20), 49407, dtype=torch.long)
+        sequence_length = int(args.sequence_length)
+        if args.clip_runtime == "openai":
+            import clip
+            openai_model, _ = clip.load("ViT-B/32", device="cpu")
+            openai_model.eval()
+            np_projection = openai_model.text_projection.detach().cpu().numpy().astype("float32")
+            npy_path = Path(args.metadata).with_name("text_projection_512_512.npy")
+            import numpy as np
+            np.save(npy_path, np_projection)
+            bpe_src = Path(clip.__file__).with_name("bpe_simple_vocab_16e6.txt.gz")
+            if bpe_src.is_file():
+                shutil.copy2(bpe_src, Path(args.metadata).with_name("bpe_simple_vocab_16e6.txt.gz"))
+            text_encoder = ClipSequenceEncoder(openai_model).eval()
+            input_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
+            opset = 13
+        else:
+            text_model = CLIPTextModelWithProjection.from_pretrained(local_assets).eval()
+            text_encoder = TextEncoder(text_model).eval()
+            input_ids = torch.full((1, sequence_length), 49407, dtype=torch.long)
+            opset = 18
         torch.onnx.export(
             text_encoder, input_ids, args.text, input_names=["input_ids"],
-            output_names=["text_features"], opset_version=18, do_constant_folding=True)
+            output_names=["text_features"], opset_version=opset, do_constant_folding=True)
 
     tokenizer_output = Path(args.tokenizer_output)
     tokenizer_output.mkdir(parents=True, exist_ok=True)
@@ -119,11 +185,13 @@ def main():
         if path.is_file():
             shutil.copy2(path, tokenizer_output / name)
     Path(args.metadata).write_text(json.dumps({
-        "model_variant": "yolo_world_v2_s",
+        "model_variant": f"yolo_world_v2_{variant}",
         "input_size": [640, 640],
         "num_classes": 80,
-        "sequence_length": 20,
+        "sequence_length": int(args.sequence_length),
         "pad_token_id": 49407,
+        "token_pad_id": 0 if args.clip_runtime == "openai" else 49407,
+        "text_projection": "text_projection_512_512.npy" if args.clip_runtime == "openai" else None,
         "labels": labels,
         "model_files": {"detector": "detector.rknn", "text": "text.rknn"},
         "tokenizer_directory": "tokenizer",

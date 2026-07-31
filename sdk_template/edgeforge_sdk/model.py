@@ -1448,7 +1448,13 @@ class MobileSAM(_ModelBase):
             runner = self.engines[component]
             if len(values) != len(runner["inputs"]):
                 raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
-            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            converted = []
+            for index, value in enumerate(values):
+                array = np.asarray(value)
+                if component == "detector" and index == 0 and array.ndim == 4 and array.shape[-1] == 3:
+                    array = np.transpose(array, (0, 3, 1, 2))
+                converted.append(array)
+            feed = {name: value for name, value in zip(runner["inputs"], converted)}
             outputs = runner["engine"].process(runner["graph"], feed)
             if isinstance(outputs, dict):
                 return [outputs[name] for name in runner["outputs"]]
@@ -1678,7 +1684,13 @@ class CLIP(MobileSAM):
             runner = self.engines[component]
             if len(values) != len(runner["inputs"]):
                 raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
-            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            converted = []
+            for index, value in enumerate(values):
+                array = np.asarray(value)
+                if component == "detector" and index == 0 and array.ndim == 4 and array.shape[-1] == 3:
+                    array = np.transpose(array, (0, 3, 1, 2))
+                converted.append(array)
+            feed = {name: value for name, value in zip(runner["inputs"], converted)}
             outputs = runner["engine"].process(runner["graph"], feed)
             if isinstance(outputs, dict):
                 return [outputs[name] for name in runner["outputs"]]
@@ -1708,7 +1720,7 @@ class CLIP(MobileSAM):
     def _tokenize(self, texts):
         tokenizer = self._tokenizer()
         length = int(self.config.get("sequence_length", 20))
-        pad = int(self.config.get("pad_token_id", 49407))
+        pad = int(self.config.get("token_pad_id", self.config.get("pad_token_id", 49407)))
         result = np.full((len(texts), length), pad, dtype=np.int64)
         for index, text in enumerate(texts):
             ids = tokenizer.encode(str(text)).ids[:length]
@@ -1780,7 +1792,13 @@ class YoloWorld(CLIP):
             runner = self.engines[component]
             if len(values) != len(runner["inputs"]):
                 raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
-            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            converted = []
+            for index, value in enumerate(values):
+                array = np.asarray(value)
+                if component == "detector" and index == 0 and array.ndim == 4 and array.shape[-1] == 3:
+                    array = np.transpose(array, (0, 3, 1, 2))
+                converted.append(array)
+            feed = {name: value for name, value in zip(runner["inputs"], converted)}
             outputs = runner["engine"].process(runner["graph"], feed)
             if isinstance(outputs, dict):
                 return [outputs[name] for name in runner["outputs"]]
@@ -1815,9 +1833,21 @@ class YoloWorld(CLIP):
         image, context = self.preprocess(source)
         prompts = texts + [""] * (capacity - len(texts))
         token_ids = self._tokenize(prompts)
-        embeddings = [self.infer_raw(row[None, :], component="text")[0]
-                      for row in token_ids]
-        text_features = np.expand_dims(np.concatenate(embeddings, axis=0), 0)
+        embeddings = [self.infer_raw(row[None, :], component="text")[0] for row in token_ids]
+        projection_name = self.config.get("text_projection")
+        if projection_name:
+            base = self.model_path if self.model_path.is_dir() else self.config_path.parent
+            projection = np.load(base / projection_name).astype(np.float32)
+            rows = []
+            for row, embedding in zip(token_ids, embeddings):
+                sequence = np.asarray(embedding, dtype=np.float32)
+                eot_index = int(np.asarray(row).argmax())
+                vector = sequence.reshape(sequence.shape[0], sequence.shape[1], -1)[0, eot_index] @ projection
+                vector = vector / max(float(np.linalg.norm(vector)), 1e-12)
+                rows.append(vector[None, :])
+            text_features = np.expand_dims(np.concatenate(rows, axis=0), 0)
+        else:
+            text_features = np.expand_dims(np.concatenate(embeddings, axis=0), 0)
         outputs = self.infer_raw([image, text_features], component="detector")
         context["texts"] = texts
         return self.postprocess(outputs, context, confidence=confidence, iou=iou)

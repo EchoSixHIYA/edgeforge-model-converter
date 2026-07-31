@@ -1,5 +1,6 @@
 """Architecture-aware exporters from training weights to vendor-friendly ONNX."""
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -371,7 +372,29 @@ class ArchitectureExporters:
                 "--detector", str(detector), "--text", str(text_model),
                 "--tokenizer-output", str(work / "tokenizer"),
                 "--metadata", str(metadata),
+                "--sequence-length", str(int(sophon_cfg.get("sequence_length", 77))),
             ], repo)
+            clip_python = Path(os.environ.get(
+                "EDGEFORGE_YOLO_WORLD_CLIP_PYTHON",
+                str(Path(sys.prefix).parent / ".edgeforge-yolo-world-clip-export-venv" /
+                    "bin" / "python")))
+            if not clip_python.is_file():
+                raise RuntimeError(
+                    f"missing YOLO-World Torch 1.13 CLIP export environment: {clip_python}; "
+                    "run scripts/setup_wsl.sh")
+            self._run([
+                str(clip_python), str(self.root / "server" / "yolo_world_clip_text_export_worker.py"),
+                "--output", str(text_model),
+                "--projection", str(work / "text_projection_512_512.npy"),
+                "--bpe-output", str(work / "bpe_simple_vocab_16e6.txt.gz"),
+            ], self.root)
+            meta = json.loads(metadata.read_text(encoding="utf-8"))
+            meta.update({
+                "sequence_length": int(sophon_cfg.get("sequence_length", 77)),
+                "token_pad_id": 0,
+                "text_projection": "text_projection_512_512.npy",
+            })
+            metadata.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
             return {"detector": detector, "text": text_model}
         if architecture == "yolox":
             repo = self.repos / "yolox"
