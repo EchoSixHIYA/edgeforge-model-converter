@@ -20,7 +20,17 @@ function syncOptions() {
 
   [...arch.options].forEach(item => {
     const itemSupport = JSON.parse(item.dataset.vendorSupport || '{}');
-    item.hidden = !itemSupport[selectedVendor]?.available;
+    const support = itemSupport[selectedVendor];
+    item.hidden = !support?.available;
+    if (item.dataset.label && support?.available) {
+      item.textContent = support.verified === false
+        ? `${item.dataset.label}（待板端验收）`
+        : item.dataset.label;
+    }
+  });
+  [...arch.querySelectorAll('optgroup')].forEach(group => {
+    const visible = [...group.children].some(item => !item.hidden && !item.disabled);
+    group.hidden = !visible;
   });
   if (arch.selectedOptions[0]?.hidden) {
     const next = [...arch.options].find(item => !item.hidden && !item.disabled);

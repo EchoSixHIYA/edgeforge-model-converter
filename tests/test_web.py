@@ -73,9 +73,20 @@ def test_frontend_script_has_valid_sophon_health_copy():
     script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
     assert "health.sophon?.ready" in script
     assert "support.weight_formats" in script
+    assert "待板端验收" in script
+    assert "querySelectorAll('optgroup')" in script
     assert "SOPHGO 环境就绪" in script
     assert "转换环境组件待安装" in script
     assert "鐜" not in script
+
+
+def test_architecture_selector_uses_vendor_neutral_groups(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    body = app.test_client().get("/").get_data(as_text=True)
+    assert "可提交转换" in body
+    assert "暂未开放提交" in body
+    assert "RK 官方目录（待完成闭环）" not in body
+    assert "data-label=" in body
 
 
 def test_verified_mobilenet_checkpoint_is_accepted(tmp_path):
