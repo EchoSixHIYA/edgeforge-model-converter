@@ -1564,7 +1564,13 @@ class PPOCR(MobileSAM):
             runner = self.engines[component]
             if len(values) != len(runner["inputs"]):
                 raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
-            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            converted = []
+            for value in values:
+                array = np.asarray(value)
+                if array.ndim == 4 and array.shape[-1] == 3:
+                    array = np.transpose(array, (0, 3, 1, 2))
+                converted.append(array)
+            feed = {name: value for name, value in zip(runner["inputs"], converted)}
             outputs = runner["engine"].process(runner["graph"], feed)
             if isinstance(outputs, dict):
                 return [outputs[name] for name in runner["outputs"]]
