@@ -85,6 +85,7 @@ def test_mobilenet_accepts_only_pth_training_checkpoint(tmp_path):
     assert exporter.supports("yolov12", ".pt", "sophon")
     assert exporter.supports("yolox", ".pth", "sophon")
     assert exporter.supports("yolo_world", ".pth", "sophon")
+    assert exporter.supports("ppocr", ".zip", "sophon")
     assert not exporter.supports("yolov8", ".onnx", "sophon")
 
 
@@ -98,6 +99,67 @@ def test_sophon_model_registry_drives_public_yolo_support():
         assert support["notes"] == cfg["notes"]
     assert BModelBackend._model_name("yolov8_obb", "fallback") == SOPHON_MODELS["yolov8_obb"]["bmodel_name"]
     assert BModelBackend._model_name("yolo11_obb", "fallback") == SOPHON_MODELS["yolo11_obb"]["bmodel_name"]
+    assert BModelBackend._model_name("yolo_world", "fallback", "text") == "clip_text_vitb32"
+    assert BModelBackend._model_name("ppocr", "fallback", "det") == "ch_PP-OCRv4_det"
+    assert BModelBackend._model_name("ppocr", "fallback", "rec") == "ch_PP-OCRv4_rec"
+
+
+def test_bmodel_backend_uses_official_multicomponent_shapes():
+    assert BModelBackend._input_shapes("yolo_world", [640, 640], "detector") == "[[1,3,640,640],[1,80,512]]"
+    assert BModelBackend._input_shapes("yolo_world", [640, 640], "text") == "[[1,77]]"
+    assert BModelBackend._input_shapes("ppocr", [640, 640], "det") == "[[1,3,640,640]]"
+    assert BModelBackend._input_shapes("ppocr", [640, 640], "rec") == "[[1,3,48,320]]"
+
+
+def test_sophon_ppocr_export_uses_640_detector_shape(monkeypatch, tmp_path):
+    source = tmp_path / "ppocr.zip"
+    source.write_bytes(b"zip")
+    worker_python = tmp_path / "python"
+    worker_python.write_bytes(b"")
+    work = tmp_path / "work"
+    work.mkdir()
+    calls = []
+    exporter = ArchitectureExporters(tmp_path)
+    monkeypatch.setenv("EDGEFORGE_PPOCR_PYTHON", str(worker_python))
+
+    def fake_run(command, cwd):
+        calls.append(command)
+
+    exporter._run = fake_run
+    outputs = exporter.export(source, work, "ppocr", "sophon", lambda *_: None)
+
+    assert set(outputs) == {"det", "rec"}
+    assert calls[0][calls[0].index("--det-input-size") + 1] == "640"
+
+
+def test_sophon_yolo_world_sdk_config_keeps_official_text_length(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    from server.pipeline import Pipeline
+    from server.catalog import BY_ID
+    packager = Pipeline(root)
+    cfg = dict(BY_ID["yolo_world"])
+    cfg["sequence_length"] = 77
+    detector_onnx = tmp_path / "detector.onnx"
+    text_onnx = tmp_path / "text.onnx"
+    detector_bmodel = tmp_path / "detector.bmodel"
+    text_bmodel = tmp_path / "text.bmodel"
+    for path in (detector_onnx, text_onnx, detector_bmodel, text_bmodel):
+        path.write_bytes(b"x")
+    (tmp_path / "export_metadata.json").write_text(json.dumps({
+        "sequence_length": 20, "num_classes": 80,
+    }), encoding="utf-8")
+    task = {"platform": "bm1684x", "precision": "f16", "vendor": "sophon", "backend": "bmodel"}
+
+    archive = packager._package_sdk(
+        task, cfg,
+        {"detector": detector_onnx, "text": text_onnx},
+        {"detector": detector_bmodel, "text": text_bmodel},
+        tmp_path)
+
+    with zipfile.ZipFile(archive) as package:
+        config = json.loads(package.read("model/config.json"))
+    assert config["sequence_length"] == 77
+    assert config["model_files"] == {"detector": "detector.bmodel", "text": "text.bmodel"}
 
 
 def test_bmodel_backend_invokes_tpu_mlir_for_fp16(monkeypatch, tmp_path):
@@ -135,9 +197,11 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     out = tmp_path / "detector.bmodel"
     dataset = tmp_path / "dataset.txt"
     calibration_dir = tmp_path / "calibration"
+    quantize_table = tmp_path / "yoloworld_v2_qtable"
     calibration_dir.mkdir()
     onnx.write_bytes(b"onnx")
     dataset.write_text("image.jpg\n", encoding="utf-8")
+    quantize_table.write_text("qtable\n", encoding="utf-8")
     calls = []
     monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
 
@@ -152,7 +216,7 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
     BModelBackend().convert(onnx, out, {
         "platform": "bm1684x", "precision": "i8", "dataset": str(dataset),
-        "calibration_dir": str(calibration_dir),
+        "calibration_dir": str(calibration_dir), "quantize_table": str(quantize_table),
         "catalog": {"id": "yolo_world", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
         "component": "detector",
     }, lambda *_: None)
@@ -161,6 +225,7 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640],[1,80,512]]"
     assert calls[1][calls[1].index("--dataset") + 1] == str(calibration_dir.resolve())
     assert "--calibration_table" in calls[-1]
+    assert calls[-1][calls[-1].index("--quantize_table") + 1] == str(quantize_table.resolve())
 
 
 def test_bmodel_backend_rejects_dataset_txt_for_int8(monkeypatch, tmp_path):
@@ -409,6 +474,30 @@ def test_ppocr_ctc_removes_blank_and_repeated_tokens():
     text, score = _ppocr_ctc(probabilities, ["纯", "臻", " "])
     assert text == "纯臻 "
     assert score == pytest.approx(.9)
+
+
+def test_ppocr_infer_raw_supports_sail_component():
+    import numpy as np
+    from sdk_template.edgeforge_sdk import PPOCR
+
+    class FakeEngine:
+        def process(self, graph, feed):
+            assert graph == "graph"
+            assert list(feed) == ["input"]
+            return {"output": np.asarray([42], dtype=np.float32)}
+
+    model = object.__new__(PPOCR)
+    model.engines = {
+        "det": {
+            "runtime": "sail", "engine": FakeEngine(), "graph": "graph",
+            "inputs": ["input"], "outputs": ["output"],
+        }
+    }
+    model._component_runtimes = {"det": "sail"}
+    model.load = lambda: model
+
+    outputs = model.infer_raw(np.zeros((1, 3, 640, 640), dtype=np.float32), component="det")
+    assert outputs[0].tolist() == [42.0]
 
 
 def test_clip_similarity_returns_ranked_text_candidates():

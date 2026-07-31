@@ -17,6 +17,7 @@ parser.add_argument("--det", required=True)
 parser.add_argument("--rec", required=True)
 parser.add_argument("--metadata", required=True)
 parser.add_argument("--dictionary", required=True)
+parser.add_argument("--det-input-size", type=int, default=480)
 args = parser.parse_args()
 
 
@@ -48,12 +49,13 @@ try:
             archives[kind] = output
     if set(archives) != {"det", "rec"}:
         raise ValueError("PPOCR source ZIP must contain one det archive and one rec archive")
+    det_size = int(args.det_input_size)
 
     paddle2onnx = Path(sys.executable).with_name("paddle2onnx")
     if not paddle2onnx.is_file():
         raise RuntimeError("paddle2onnx executable is not available in the PPOCR exporter environment")
     for kind, shape, destination in (
-        ("det", [1, 3, 480, 480], Path(args.det).resolve()),
+        ("det", [1, 3, det_size, det_size], Path(args.det).resolve()),
         ("rec", [1, 3, 48, 320], Path(args.rec).resolve()),
     ):
         extracted = workspace / kind
@@ -83,7 +85,7 @@ try:
     onnx.checker.check_model(rec_model)
     onnx.save(rec_model, str(Path(args.rec).resolve()))
     Path(args.metadata).write_text(json.dumps({
-        "input_layout": "nhwc", "rec_input_size": [320, 48],
+        "input_layout": "nhwc", "input_size": [det_size, det_size], "rec_input_size": [320, 48],
         "characters": characters + [" "],
         "model_files": {"det": "det.rknn", "rec": "rec.rknn"},
         "source_archives": {"det": "ch_PP-OCRv4_det_infer.tar", "rec": "ch_PP-OCRv4_rec_infer.tar"},

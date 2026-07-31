@@ -90,6 +90,12 @@ class BModelBackend(ConversionBackend):
         ]
         if calibration_table:
             deploy.extend(["--calibration_table", str(calibration_table)])
+        quantize_table = options.get("quantize_table")
+        if quantize_table:
+            quantize_table = Path(quantize_table).resolve()
+            if not quantize_table.is_file():
+                raise ValueError(f"SOPHGO quantize_table not found: {quantize_table}")
+            deploy.extend(["--quantize_table", str(quantize_table)])
         self._run(deploy, work)
 
     @staticmethod
@@ -102,16 +108,22 @@ class BModelBackend(ConversionBackend):
     @staticmethod
     def _model_name(architecture, fallback, component="model"):
         if architecture == "yolo_world" and component == "text":
-            return "clip_text"
+            return "clip_text_vitb32"
         cfg = sophon_model(architecture)
+        component_names = cfg.get("component_names", {}) if cfg else {}
+        if component in component_names:
+            return component_names[component]
         return cfg.get("bmodel_name", fallback) if cfg else fallback
 
     @staticmethod
     def _input_shapes(architecture, input_size, component="model"):
         if architecture == "yolo_world" and component == "text":
-            return "[[1,20]]"
+            cfg = sophon_model(architecture) or {}
+            return f"[[1,{int(cfg.get('sequence_length', 77))}]]"
         if architecture == "yolo_world":
             return "[[1,3,640,640],[1,80,512]]"
+        if architecture == "ppocr" and component == "rec":
+            return "[[1,3,48,320]]"
         width, height = [int(value) for value in input_size]
         return f"[[1,3,{height},{width}]]"
 

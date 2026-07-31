@@ -33,8 +33,11 @@ EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端�
 - YOLOv12 detection
 - YOLOX
 - YOLO-World V2
+- PP-OCRv4
 
-YOLO-World V2 在官方样例中包含 detector 与 `clip_text` 两个 ONNX/BModel 组件，因此 SDK 包会保留多模型结构。官方当前主要脚本覆盖 FP32/FP16，INT8 暂不开放到工作台，直到校准契约完成复刻与验收。
+YOLO-World V2 在官方样例中包含 detector 与 `clip_text_vitb32` 两个 ONNX/BModel 组件，因此 SDK 包会保留多模型结构。detector 的 TPU-MLIR 输入形状为 `[[1,3,640,640],[1,80,512]]`，text tower 的 token 输入形状为 `[[1,77]]`。FP32/FP16 直接部署；INT8 detector 会额外使用官方 `sample/YOLO_world_v2/scripts/yoloworld_v2_qtable`，text tower 仍按官方链路生成 FP16 BModel。
+
+PP-OCRv4 在官方样例中拆成检测 det 与识别 rec 两个组件。当前工作台接受含官方 Paddle inference det/rec tar 的 ZIP，先导出 `det.onnx` / `rec.onnx`，再分别进入 TPU-MLIR：det 首版固定为 `[[1,3,640,640]]`，rec 固定为 `[[1,3,48,320]]`。官方脚本还提供 batch 1/4 合并 BModel 的路径；EdgeForge 当前先接单 batch 版本，后续验收多 batch 再打开组合产物。
 
 ## 精度约定
 

@@ -63,6 +63,8 @@ class ArchitectureExporters:
         if not self.supports(architecture, source.suffix, vendor):
             raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传模型目录声明的原始权重格式")
         if vendor == "sophon":
+            if architecture == "ppocr":
+                return self._export_ppocr(source, work, progress, det_input_size=640)
             return self._export_sophon_yolo(source, work, architecture, progress, BY_ID[architecture])
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
@@ -309,6 +311,28 @@ class ArchitectureExporters:
         output = work / "model.onnx"
         shutil.copy2(candidates[0], output)
         return output
+
+    def _export_ppocr(self, source, work, progress, det_input_size=480):
+        det = work / "det.onnx"
+        rec = work / "rec.onnx"
+        paddle_python = Path(os.environ.get(
+            "EDGEFORGE_PPOCR_PYTHON", os.environ.get(
+                "EDGEFORGE_PPYOLOE_PYTHON",
+                str(Path(sys.prefix).parent / ".edgeforge-ppyoloe-export-venv" /
+                    "bin" / "python"))))
+        if not paddle_python.is_file():
+            raise RuntimeError(
+                f"缺少 PPOCR Paddle 导出环境: {paddle_python}；请重新运行 scripts/setup_wsl.sh")
+        progress(24, "从 PP-OCRv4 官方 Paddle 推理包导出固定尺寸检测与识别 ONNX")
+        self._run([
+            str(paddle_python), str(self.root / "server" / "ppocr_export_worker.py"),
+            "--model", str(source.resolve()), "--det", str(det), "--rec", str(rec),
+            "--metadata", str(work / "export_metadata.json"),
+            "--dictionary", str(self.root / "vendor" / "rknn_model_zoo" / "examples" /
+                                "PPOCR" / "PPOCR-Rec" / "model" / "ppocr_keys_v1.txt"),
+            "--det-input-size", str(int(det_input_size)),
+        ], self.root)
+        return {"det": det, "rec": rec}
 
     def _export_sophon_yolo(self, source, work, architecture, progress, cfg):
         metadata = work / "export_metadata.json"

@@ -76,10 +76,19 @@ SOPHON_MODELS = {
     "yolo_world": {
         "sample": "YOLO_world_v2", "bmodel_name": "yoloworld_v2",
         "input_size": [640, 640], "weight_suffixes": (".pth",),
-        "precisions": ("f32", "f16", "bf16"),
+        "sequence_length": 77,
         "notes": (
-            "sophon-demo YOLO_world_v2 currently publishes FP32/FP16 MLIR scripts; "
-            "INT8 is held back until official calibration flow is mirrored."
+            "sophon-demo YOLO_world_v2 uses detector + clip_text_vitb32 BModels; "
+            "the text tower uses [1,77] token input."
+        ),
+    },
+    "ppocr": {
+        "sample": "PP-OCR", "bmodel_name": "ch_PP-OCRv4",
+        "input_size": [640, 640], "weight_suffixes": (".zip",),
+        "component_names": {"det": "ch_PP-OCRv4_det", "rec": "ch_PP-OCRv4_rec"},
+        "notes": (
+            "sophon-demo PP-OCR compiles det and rec ONNX models with TPU-MLIR; "
+            "det uses [1,3,640,640], rec uses [1,3,48,320] in the first EdgeForge path."
         ),
     },
 }

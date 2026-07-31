@@ -70,6 +70,9 @@ class Pipeline:
         effective_cfg = dict(cfg)
         if support.get("input_size"):
             effective_cfg["input_size"] = support["input_size"]
+        sophon_cfg = sophon_model(cfg["id"]) if task["vendor"] == "sophon" else None
+        if sophon_cfg and sophon_cfg.get("sequence_length"):
+            effective_cfg["sequence_length"] = sophon_cfg["sequence_length"]
 
         dataset = self._prepare_calibration(task.get("calibration_path"), work, update)
         onnx_artifacts = self._to_onnx(source, work, task, update)
@@ -96,6 +99,9 @@ class Pipeline:
                 options["fuse_normalization"] = False
             if cfg["id"] == "yolo_world":
                 options["fuse_normalization"] = False
+                if (task["vendor"] == "sophon" and component == "detector" and
+                        str(task["precision"]).lower() in {"i8", "int8"}):
+                    options["quantize_table"] = str(self._yolo_world_quantize_table())
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
         update(91, "组装对应架构的部署 SDK")
@@ -150,6 +156,19 @@ class Pipeline:
             return
         except Exception as exc:
             raise ValueError(f"ONNX 结构校验失败: {exc}") from exc
+
+    def _yolo_world_quantize_table(self):
+        candidates = [
+            self.sophon_demo / "sample" / "YOLO_world_v2" / "scripts" / "yoloworld_v2_qtable",
+            self.root / "vendor" / "sophon-demo" / "sample" / "YOLO_world_v2" / "scripts" / "yoloworld_v2_qtable",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        raise ValueError(
+            "YOLO-World V2 INT8 requires the official sophon-demo "
+            "sample/YOLO_world_v2/scripts/yoloworld_v2_qtable. "
+            "Run scripts/setup_sophon.sh or set SOPHON_DEMO to a sophon-demo checkout.")
 
     def _package_sdk(self, task, cfg, onnx_models, outputs, work):
         stage = work / "sdk"
@@ -207,6 +226,8 @@ class Pipeline:
         for key in ("sample_rate", "sample_count", "chunk_seconds", "logit_resize", "input_layout", "prompt_count", "rec_input_size", "characters", "sequence_length", "pad_token_id", "logit_scale", "tokenizer_directory", "num_classes"):
             if key in export_metadata:
                 runtime_config[key] = export_metadata[key]
+        if cfg.get("sequence_length"):
+            runtime_config["sequence_length"] = cfg["sequence_length"]
         if len(outputs) > 1:
             runtime_config["model_files"] = {name: path.name for name, path in outputs.items()}
             runtime_config["intermediate_files"] = {name: path.name for name, path in onnx_models.items()}

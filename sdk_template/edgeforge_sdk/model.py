@@ -1552,11 +1552,20 @@ class PPOCR(MobileSAM):
         return paths
 
     def infer_raw(self, inputs, *, component):
-        """Run the ``det`` or ``rec`` RKNN component and return untouched outputs."""
+        """Run the ``det`` or ``rec`` component and return untouched outputs."""
         if component not in {"det", "rec"}:
             raise ValueError("PPOCR component must be 'det' or 'rec'")
         self.load()
         values = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        if self._component_runtimes.get(component) == "sail":
+            runner = self.engines[component]
+            if len(values) != len(runner["inputs"]):
+                raise ValueError(f"{component} BModel expects {len(runner['inputs'])} inputs, got {len(values)}")
+            feed = {name: np.asarray(value) for name, value in zip(runner["inputs"], values)}
+            outputs = runner["engine"].process(runner["graph"], feed)
+            if isinstance(outputs, dict):
+                return [outputs[name] for name in runner["outputs"]]
+            return list(outputs)
         outputs = self.engines[component].inference(inputs=values)
         if outputs is None:
             raise RuntimeError(f"PPOCR {component} inference returned no outputs")
