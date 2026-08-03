@@ -1,4 +1,4 @@
-# SOPHGO BM1684X 接入说明
+# SOPHGO BM1684/BM1684X 接入说明
 
 EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端产物。
 
@@ -10,7 +10,7 @@ EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端�
   -> TPU-MLIR model_transform.py
   -> run_calibration.py (INT8)
   -> model_deploy.py
-  -> BM1684X .bmodel
+  -> BM1684/BM1684X .bmodel
   -> SOPHON-SAIL Python SDK
 ```
 
@@ -86,18 +86,18 @@ with YoloV8("model", device_id=0) as model:
 转换完成后，可先在任意机器做包结构检查：
 
 ```bash
-python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip
+python scripts/smoke_bmodel.py path/to/yolov8_bm1684_f16_sdk.zip
 ```
 
-在 BM1684X 设备或已进入 SOPHGO Runtime 环境的机器上，要求同时执行 `bmrt_test`：
+在 BM1684/BM1684X 设备或已进入 SOPHGO Runtime 环境的机器上，要求同时执行 `bmrt_test`：
 
 ```bash
-python scripts/smoke_bmodel.py path/to/yolov8_bm1684x_f16_sdk.zip --require-bmrt
+python scripts/smoke_bmodel.py path/to/yolov8_bm1684_f16_sdk.zip --require-bmrt
 ```
 
 ### 板端最小 BModel smoke
 
-如果 BM1684X 板端已经有若干 `.bmodel`，可先用仓库脚本选择体积最小的模型做运行时冒烟：
+如果 BM1684/BM1684X 板端已经有若干 `.bmodel`，可先用仓库脚本选择体积最小的模型做运行时冒烟：
 
 ```bash
 bash scripts/board_sophon_smoke.sh /home/linaro/3588_edge

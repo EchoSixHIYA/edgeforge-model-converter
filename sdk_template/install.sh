@@ -64,7 +64,7 @@ PY
     echo "SOPHON-SAIL Python runtime found."
   else
     echo "Warning: this package contains .bmodel files, but sophon.sail is not installed in this Python environment." >&2
-    echo "Install the official SOPHON-SAIL runtime on the BM1684X device before running inference." >&2
+    echo "Install the official SOPHON-SAIL runtime on the BM1684/BM1684X device before running inference." >&2
   fi
 fi
 

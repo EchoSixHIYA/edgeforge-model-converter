@@ -24,7 +24,7 @@ bash install.sh
 
 随包 wheel 只负责 Python 侧 RKNNLite，并且只有包内存在 `.rknn` 时才会安装。板卡固件中的 `librknnrt.so` 和 NPU 驱动仍由系统提供，安装脚本不会替换系统库；若模型编译器与板端运行库版本不同，运行时会给出兼容性警告。
 
-SOPHGO BM1684X 的 `.bmodel` 包也使用同一套显式类入口；板端需要系统或虚拟环境中已安装官方 SOPHON-SAIL Python 包。SDK 根据 `.rknn` / `.bmodel` 后缀自动选择 RKNNLite 或 `sophon.sail.Engine`，不需要安装第二个 EdgeForge SDK。
+SOPHGO BM1684/BM1684X 的 `.bmodel` 包也使用同一套显式类入口；板端需要系统或虚拟环境中已安装官方 SOPHON-SAIL Python 包。SDK 根据 `.rknn` / `.bmodel` 后缀自动选择 RKNNLite 或 `sophon.sail.Engine`，不需要安装第二个 EdgeForge SDK。
 
 板端使用 RKNNLite，无需传 `target`。装有完整 RKNN-Toolkit2 的 x86 调试机必须连接真实板卡并使用对应模型类，例如 `YoloV10("model", target="rk3588", device_id="设备 ID")`；已编译 RKNN 不能直接使用 x86 模拟器。
 

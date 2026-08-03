@@ -32,8 +32,9 @@ class BModelBackend(ConversionBackend):
         if not quantize:
             raise ValueError(f"unsupported SOPHGO precision: {options['precision']}")
         chip = str(options["platform"]).lower()
-        if chip != "bm1684x":
-            raise ValueError(f"SOPHGO backend currently supports BM1684X only, got: {options['platform']}")
+        if chip not in {"bm1684", "bm1684x"}:
+            raise ValueError(
+                f"SOPHGO backend currently supports BM1684/BM1684X only, got: {options['platform']}")
 
         cfg = options["catalog"]
         component = options.get("component", "model")
@@ -78,7 +79,7 @@ class BModelBackend(ConversionBackend):
                 "-o", str(calibration_table),
             ], work)
 
-        progress(78, f"Deploying BM1684X BModel ({quantize})")
+        progress(78, f"Deploying {chip.upper()} BModel ({quantize})")
         deploy = [
             "model_deploy.py",
             "--mlir", str(mlir),

@@ -28,12 +28,12 @@ def test_health_and_catalog(tmp_path):
     data = client.get("/api/catalog").get_json()
     assert len(data["models"]) >= 33
     assert {"rk3588", "rk3566"}.issubset(data["platforms"])
-    assert "bm1684x" in data["platforms"]
+    assert {"bm1684", "bm1684x"}.issubset(data["platforms"])
     assert {vendor["id"] for vendor in data["vendors"]} >= {"rockchip", "sophon"}
     assert {backend["id"] for backend in data["backends"]} >= {"rknn", "bmodel"}
     assert len(data["models"]) == 33
     assert all("status" in model and "blocker" in model for model in data["models"])
-    assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684x"]
+    assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684", "bm1684x"]
     assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
     assert BY_ID["yolox"]["vendor_support"]["sophon"]["weight_formats"] == [".pth"]
     assert BY_ID["yolov9"]["vendor_support"]["sophon"]["blocker"] == ""
@@ -108,6 +108,24 @@ def test_sophon_yolo_task_is_accepted_with_bm1684x_precision(tmp_path):
     assert response.status_code == 202
     task = response.get_json()
     assert task["vendor"] == "sophon"
+    assert task["backend"] == "bmodel"
+
+
+@pytest.mark.parametrize("architecture,filename", [
+    ("yolov8", "model.pt"),
+    ("yolo_world", "model.pth"),
+    ("ppocr", "model.zip"),
+])
+def test_sophon_priority_models_accept_bm1684_target(tmp_path, architecture, filename):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": architecture, "platform": "bm1684", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), filename),
+    })
+    assert response.status_code == 202
+    task = response.get_json()
+    assert task["vendor"] == "sophon"
+    assert task["platform"] == "bm1684"
     assert task["backend"] == "bmodel"
 
 

@@ -49,7 +49,7 @@ then
   echo "SOPHON-SAIL Python runtime found."
 else
   echo "SOPHON-SAIL Python runtime is not installed in the current Python environment."
-  echo "This is required only for running .bmodel files through edgeforge_sdk on BM1684X."
+  echo "This is required only for running .bmodel files through edgeforge_sdk on BM1684/BM1684X."
 fi
 
 echo "SOPHGO setup check completed."

@@ -1,4 +1,4 @@
-SOPHON_PLATFORMS = ["bm1684x"]
+SOPHON_PLATFORMS = ["bm1684", "bm1684x"]
 SOPHON_DEFAULT_PRECISIONS = ("f32", "f16", "bf16", "i8")
 
 
@@ -6,7 +6,7 @@ SOPHON_MODELS = {
     "yolov5": {
         "sample": "YOLOv5", "bmodel_name": "yolov5",
         "input_size": [640, 640], "weight_suffixes": (".pt",),
-        "notes": "SOPHGO path uses standard ONNX, TPU-MLIR, and BModel for BM1684X.",
+        "notes": "SOPHGO path uses standard ONNX, TPU-MLIR, and BModel for BM1684/BM1684X.",
     },
     "yolov7": {
         "sample": "YOLOv7", "bmodel_name": "yolov7",

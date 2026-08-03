@@ -190,6 +190,34 @@ def test_bmodel_backend_invokes_tpu_mlir_for_fp16(monkeypatch, tmp_path):
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640]]"
     assert calls[1][0] == "model_deploy.py"
     assert calls[1][calls[1].index("--quantize") + 1] == "F16"
+    assert calls[1][calls[1].index("--chip") + 1] == "bm1684x"
+
+
+def test_bmodel_backend_invokes_tpu_mlir_for_bm1684(monkeypatch, tmp_path):
+    onnx = tmp_path / "model.onnx"
+    out = tmp_path / "model.bmodel"
+    onnx.write_bytes(b"onnx")
+    calls = []
+
+    monkeypatch.setattr("server.backends.bmodel.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(command, cwd, text, capture_output):
+        calls.append(command)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
+    BModelBackend().convert(onnx, out, {
+        "platform": "bm1684", "precision": "f16",
+        "catalog": {"id": "yolov8", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
+        "component": "model",
+    }, lambda *_: None)
+
+    assert calls[1][0] == "model_deploy.py"
+    assert calls[1][calls[1].index("--chip") + 1] == "bm1684"
 
 
 def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
