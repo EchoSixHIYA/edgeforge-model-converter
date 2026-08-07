@@ -95,6 +95,15 @@ SOPHON_MODELS = {
             "det uses [1,3,640,640], cls uses [1,3,48,192], rec uses [1,3,48,320]."
         ),
     },
+    "lprnet": {
+        "sample": "LPRNet", "bmodel_name": "lprnet",
+        "input_size": [94, 24], "weight_suffixes": (".pth",),
+        "precisions": ("f32", "f16", "i8"),
+        "notes": (
+            "sophon-demo LPRNet uses tools/LPRNet.py and tools/export_onnx.py; "
+            "the model input is [1,3,24,94] and the SDK applies CTC decoding."
+        ),
+    },
 }
 
 

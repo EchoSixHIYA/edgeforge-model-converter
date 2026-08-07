@@ -211,13 +211,14 @@ def test_bmodel_backend_invokes_tpu_mlir_for_bm1684(monkeypatch, tmp_path):
 
     monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
     BModelBackend().convert(onnx, out, {
-        "platform": "bm1684", "precision": "f16",
+        "platform": "bm1684", "precision": "f32",
         "catalog": {"id": "yolov8", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
         "component": "model",
     }, lambda *_: None)
 
     assert calls[1][0] == "model_deploy.py"
     assert calls[1][calls[1].index("--chip") + 1] == "bm1684"
+    assert calls[1][calls[1].index("--quantize") + 1] == "F32"
 
 
 def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):

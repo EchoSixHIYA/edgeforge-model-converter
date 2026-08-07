@@ -35,6 +35,8 @@ class BModelBackend(ConversionBackend):
         if chip not in {"bm1684", "bm1684x"}:
             raise ValueError(
                 f"SOPHGO backend currently supports BM1684/BM1684X only, got: {options['platform']}")
+        if chip == "bm1684" and quantize == "F16":
+            raise ValueError("BM1684 不支持 FP16；请选择 F32 或 INT8。")
 
         cfg = options["catalog"]
         component = options.get("component", "model")

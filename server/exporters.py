@@ -66,6 +66,8 @@ class ArchitectureExporters:
         if vendor == "sophon":
             if architecture == "ppocr":
                 return self._export_ppocr(source, work, progress, det_input_size=640)
+            if architecture == "lprnet":
+                return self._export_sophon_lprnet(source, work, progress)
             return self._export_sophon_yolo(source, work, architecture, progress, BY_ID[architecture])
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
@@ -461,6 +463,20 @@ class ArchitectureExporters:
         if not candidates:
             raise RuntimeError(f"{architecture} export finished but no ONNX artifact was found")
         shutil.copy2(candidates[0], output)
+        return output
+
+    def _export_sophon_lprnet(self, source, work, progress):
+        output = work / "model.onnx"
+        metadata = work / "export_metadata.json"
+        network = self.sophon_demo / "sample" / "LPRNet" / "tools" / "LPRNet.py"
+        if not network.is_file():
+            raise RuntimeError(f"缺少 sophon-demo LPRNet 网络定义: {network}")
+        progress(24, "调用 sophon-demo LPRNet 官方 PyTorch 导出器")
+        self._run([
+            sys.executable, str(self.root / "server" / "sophon_lprnet_export_worker.py"),
+            "--network", str(network), "--model", str(source.resolve()),
+            "--output", str(output), "--metadata", str(metadata),
+        ], self.root)
         return output
 
     @staticmethod
