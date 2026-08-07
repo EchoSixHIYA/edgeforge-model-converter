@@ -33,6 +33,7 @@ class ArchitectureExporters:
     def __init__(self, root):
         self.root = Path(root)
         self.repos = self.root / "vendor" / "exporters"
+        self.sophon_demo = Path(os.environ.get("SOPHON_DEMO", self.root / "vendor" / "sophon-demo"))
 
     def supports(self, architecture, suffix, vendor):
         if vendor == "sophon":
