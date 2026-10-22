@@ -31,7 +31,7 @@ def test_health_and_catalog(tmp_path):
     assert {"bm1684", "bm1684x"}.issubset(data["platforms"])
     assert {vendor["id"] for vendor in data["vendors"]} >= {"rockchip", "sophon"}
     assert {backend["id"] for backend in data["backends"]} >= {"rknn", "bmodel"}
-    assert len(data["models"]) == 33
+    assert len(data["models"]) == 34
     assert all("status" in model and "blocker" in model for model in data["models"])
     assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684", "bm1684x"]
     assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
@@ -44,6 +44,7 @@ def test_health_and_catalog(tmp_path):
         "yolov12", "yolox", "ppyoloe", "yolo_world", "yolov8_pose", "deeplabv3",
         "yolov5_seg", "yolov8_seg", "ppseg", "mobilesam", "retinaface", "lprnet", "ppocr",
         "lite_transformer", "clip", "wav2vec2", "whisper", "zipformer", "yamnet", "mms_tts",
+        "cosmos_reason2_2b",
     }
 
 

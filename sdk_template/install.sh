@@ -16,6 +16,18 @@ else
   PYTHON="${VENV_DIR}/bin/python"
 fi
 
+# Cosmos uses a compiled multi-graph BMRT module, not the CV SAIL path.
+if [[ "${1:-}" == "--vlm" ]] || [[ -f "${ROOT}/model/compilation_manifest.json" ]]; then
+  "$PYTHON" -c 'import sys; assert sys.version_info >= (3,10), "VLM extras require CPython >=3.10; use a separate Python 3.10+ venv"'
+  echo "Installing pinned CPU processor dependencies for the VLM SDK"
+  "$PYTHON" -m pip install --disable-pip-version-check torch==2.9.0 torchvision==0.24.0 --index-url https://download.pytorch.org/whl/cpu
+  "$PYTHON" -m pip install --disable-pip-version-check "${ROOT}[vlm]"
+  PYTHON_BIN="$PYTHON" bash "${ROOT}/runtime/qwen3_vl/build.sh"
+  echo "Installed VLM SDK. Hardware inference has NOT been tested by installation."
+  echo "Run: $PYTHON ${ROOT}/example.py --model ${ROOT}/model --prompt 'Hello'"
+  exit 0
+fi
+
 PY_TAG="$($PYTHON -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
 case "$PY_TAG" in
   cp38|cp39|cp310|cp311|cp312) ;;

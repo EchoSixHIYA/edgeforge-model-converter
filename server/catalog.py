@@ -279,4 +279,25 @@ _TASK_CONTRACTS = {
 for _model in CATALOG:
     _model["modality"], _model["task_type"], _model["result_type"] = _TASK_CONTRACTS[_model["id"]]
 
+# Dedicated directory-based VLM path; never label unvalidated hardware as available.
+CATALOG.append({
+    "id": "cosmos_reason2_2b", "name": "Cosmos Reason 2 2B (Qwen3-VL)",
+    "category": "视觉语言生成", "example": "Qwen3_VL", "source": "hf_directory",
+    "input_kind": "hf_directory", "input_size": None, "weight_formats": [],
+    "modality": "image+video+text", "task_type": "multimodal_generation", "result_type": "GenerationResult",
+    "platforms": ["bm1684x"], "precisions": ["w4bf16", "w8bf16", "bf16"],
+    "catalog_ready": True, "exporter_ready": True, "postprocess_ready": True,
+    "verified": False, "available": False, "export_ready": False, "experimental": True,
+    "status": "experimental", "status_label": "实验链路·待板端验收",
+    "blocker": "实际模型编译、量化质量和 BM1684X 板端验证尚未验收；仅显式实验目录入口可提交",
+    "notes": "官方 TPU-MLIR 1.28.1 Qwen3-VL 多图链路；不是普通 ONNX/千问文生图。",
+    "vendor_support": {"sophon": {
+        "backend": "bmodel", "format": "BModel", "platforms": ["bm1684x"],
+        "precisions": ["w4bf16", "w8bf16", "bf16"], "weight_formats": [],
+        "input_kind": "hf_directory", "available": False, "verified": False, "experimental": True,
+        "status": "experimental", "blocker": "待真实编译与板端验收；可显式启动实验转换",
+        "notes": "本地 HF safetensors 目录 + tokenizer/processor；禁用 HTTP 大权重上传",
+    }},
+})
+
 BY_ID = {item["id"]: item for item in CATALOG}

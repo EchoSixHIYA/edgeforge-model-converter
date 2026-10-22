@@ -54,6 +54,8 @@ class Pipeline:
         self.backends.register(BModelBackend())
 
     def run(self, task, update):
+        if task.get("input_kind") == "hf_directory":
+            return self._run_vlm(task, update)
         work = Path(task["work_dir"])
         cfg = BY_ID[task["architecture"]]
         if not cfg["available"] and not task.get("acceptance_run"):
@@ -115,6 +117,40 @@ class Pipeline:
                     archive.write(path, f"{component}{backend.output_suffix}")
         update(100, "转换完成，SDK 已打包")
         return {"model": str(model_artifact), "package": str(package)}
+
+    def _run_vlm(self, task, update):
+        from .vlm import (ARCHITECTURE, ConversionCanceled, compilation_manifest, model_roots,
+                          parameters, preflight, resolve_model_dir)
+        from .backends.vlm_bmodel import VlmBModelBackend
+        if task["architecture"] != ARCHITECTURE or task["vendor"] != "sophon" or task["backend"] != "bmodel":
+            raise ValueError("Invalid HF VLM task routing")
+        work = Path(task["work_dir"])
+        if (work / "cancel.requested").exists():
+            raise ConversionCanceled("转换已取消")
+        params = parameters(task["parameters"])
+        roots = model_roots(task.get("allowed_model_roots"))
+        update(8, "重新核验本地目录、真实权重头部、资源和官方编译环境")
+        report = preflight(self.root, task["source_path"], params, roots, work)
+        (work / "preflight.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not report["ready"]:
+            raise ValueError("VLM 预检失败: " + "; ".join(report["errors"]))
+        source = resolve_model_dir(task["source_path"], roots)
+        manifest = compilation_manifest(params, report["model"])
+        output = VlmBModelBackend(self.root).convert(source, work, params, report["toolchain"], manifest, update, report["model"]["file_identities"])
+        if (work / "cancel.requested").exists():
+            raise ConversionCanceled("转换已取消")
+        update(91, "组装包含 tokenizer/processor 的 Cosmos SDK")
+        from .vlm_sdk import package_vlm_sdk
+        package = package_vlm_sdk(self.root, task, work / "hf_source", output, manifest, work)
+        manifest_path = work / "compilation_manifest.json"
+        packaged_manifest = work / "sdk" / "manifest.json"
+        if not packaged_manifest.is_file():
+            raise RuntimeError("SDK 未写出完整 manifest.json")
+        shutil.copy2(packaged_manifest, manifest_path)
+        if (work / "cancel.requested").exists():
+            raise ConversionCanceled("转换已取消；未发布部分产物")
+        update(100, "BModel 与实验 SDK 已生成；仍需 BM1684X 板端验收")
+        return {"model": str(output), "package": str(package), "manifest": str(manifest_path)}
 
     def _prepare_calibration(self, archive, work, update):
         if not archive:

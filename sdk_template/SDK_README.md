@@ -182,3 +182,7 @@ results = model.postprocess(outputs, context, confidence=0.25)
 推荐使用对应的显式类和上下文管理器，例如 `with YoloV10("模型目录") as model:`，退出时自动释放运行时。同一个模型实例不是线程安全的。
 
 接口关系：`predict(image)` 等价于 `preprocess(image)` → `infer_raw(tensor)` → `postprocess(outputs, context)`。一般业务使用 `predict()`；自定义调度使用分步接口；完全自定义后处理只使用 `infer_raw()`。
+
+## Cosmos-Reason2-2B / Qwen3-VL
+
+此类自回归多图模型不使用上述 CV `sail.Engine` 接口。导出包使用 `CosmosReason` / `Qwen3VL` 类与官方 LLM-TPU 衍生 C++/BMRT 执行器；需单独构建 pybind11 原生模块，并携带完整 processor/tokenizer/chat/generation 配置。请按 [VLM_README.md](VLM_README.md) 安装、调用和进行板端验收；目前状态为实验性，不声称已完成真实编译/上板验证。既有 CV 模型入口保持不变。

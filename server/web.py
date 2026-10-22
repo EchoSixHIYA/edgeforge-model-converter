@@ -2,6 +2,8 @@ import json
 import os
 import shutil
 import time
+import ipaddress
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, render_template, request, send_file
@@ -14,12 +16,69 @@ from .tasks import TaskManager
 def create_app(test_config=None):
     root = Path(__file__).resolve().parents[1]
     app = Flask(__name__, template_folder=str(root / "templates"), static_folder=str(root / "static"))
-    app.config.update(MAX_CONTENT_LENGTH=4 * 1024 * 1024 * 1024, DATA_DIR=str(root / "data" / "tasks"))
+    app.config.update(MAX_CONTENT_LENGTH=4 * 1024 * 1024 * 1024,
+                      DATA_DIR=os.environ.get("EDGEFORGE_DATA_DIR", str(root / "data" / "tasks")),
+                      MODEL_ROOTS=os.environ.get("EDGEFORGE_MODEL_ROOTS", ""))
     if test_config:
         app.config.update(test_config)
     pipeline = Pipeline(root)
     manager = TaskManager(app.config["DATA_DIR"], pipeline)
     app.extensions["task_manager"] = manager
+
+    def local_vlm_access(require_header=False):
+        try:
+            local = ipaddress.ip_address(request.remote_addr or "").is_loopback
+        except ValueError:
+            local = False
+        try:
+            host = urlsplit(request.host_url).hostname
+            origin = request.headers.get("Origin")
+            parsed_origin = urlsplit(origin) if origin else None
+            origin_ok = (not origin or (parsed_origin.netloc == request.host and
+                                       parsed_origin.scheme == request.scheme and not parsed_origin.path))
+        except ValueError:
+            return False
+        header_ok = not require_header or request.headers.get("X-EdgeForge-Local-Import") == "1"
+        return local and host in {"localhost", "127.0.0.1", "::1"} and origin_ok and header_ok
+
+    def protect_vlm_task(task_id):
+        task = manager.tasks.get(task_id)
+        if task and task.get("input_kind") == "hf_directory" and not local_vlm_access():
+            abort(403)
+        return task
+
+    @app.post("/api/vlm/preflight")
+    @app.post("/api/vlm/tasks")
+    def vlm_task():
+        from .vlm import model_roots, parameters, preflight, resolve_model_dir
+        if not local_vlm_access(require_header=True):
+            return jsonify(error="VLM 本地目录入口仅允许 localhost 同源请求，并须设置 X-EdgeForge-Local-Import: 1"), 403
+        try:
+            data = request.get_json(silent=True)
+            params = parameters(data)
+            roots = model_roots(app.config["MODEL_ROOTS"])
+            source = resolve_model_dir(data.get("model_dir"), roots)
+            report = preflight(root, str(source), params, roots, app.config["DATA_DIR"])
+            if request.path.endswith("/preflight"):
+                return jsonify(report)
+            if data.get("acknowledge_experimental") is not True:
+                return jsonify(error="须明确 acknowledge_experimental=true；尚未进行真实板端验收"), 400
+            if not report["ready"]:
+                return jsonify(error="VLM 预检未通过", **report), 400
+            return jsonify(manager.create_vlm(data, source, params, roots)), 202
+        except (ValueError, OSError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.post("/api/tasks/<task_id>/cancel")
+    def cancel_task(task_id):
+        if not local_vlm_access(require_header=True):
+            return jsonify(error="取消 VLM 转换需要本地同源请求头"), 403
+        try:
+            return jsonify(manager.cancel(task_id))
+        except KeyError:
+            return jsonify(error="任务不存在"), 404
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 409
 
     def sophon_environment():
         if app.config.get("SKIP_SOPHON_ENV_CHECK"):
@@ -66,6 +125,14 @@ def create_app(test_config=None):
         }
         sophon = sophon_environment()
         sophon["sophon_sail"] = sail
+        from .vlm import model_roots, toolchain_probe
+        enabled = bool(model_roots(app.config["MODEL_ROOTS"]))
+        vlm = {"enabled": enabled, "ready": False, "experimental": True,
+               "local_import": {"enabled": enabled, "loopback_only": True, "header": "X-EdgeForge-Local-Import"}}
+        if local_vlm_access():
+            vlm["toolchain"] = toolchain_probe(root)
+            vlm["ready"] = enabled and vlm["toolchain"]["ready"]
+        sophon["vlm"] = vlm
         return jsonify(status="ok", rockchip=rockchip, sophon=sophon,
                        rknn_toolkit2=toolkit, tpu_mlir=sophon["tpu_mlir"],
                        sophon_sail=sail, sophon_demo=sophon["sophon_demo"],
@@ -75,13 +142,18 @@ def create_app(test_config=None):
     def catalog():
         return jsonify(models=CATALOG, vendors=VENDORS, backends=pipeline.backends.describe(), platforms=PLATFORMS)
 
+    @app.get("/docs/cosmos-reason2")
+    def cosmos_docs():
+        return send_file(root / "docs" / "cosmos_reason2.md", mimetype="text/markdown; charset=utf-8")
+
     @app.get("/docs/sdk-api")
     def sdk_api_docs():
         return send_file(root / "转换接入文档" / "SDK_API.md", mimetype="text/markdown; charset=utf-8")
 
     @app.get("/api/tasks")
     def tasks():
-        return jsonify(manager.list())
+        return jsonify([task for task in manager.list()
+                        if task.get("input_kind") != "hf_directory" or local_vlm_access()])
 
     @app.post("/api/tasks")
     def create_task():
@@ -93,6 +165,8 @@ def create_app(test_config=None):
         vendor = VENDOR_BY_ID.get(fields["vendor"])
         if not vendor or not vendor["available"]:
             return jsonify(error="该芯片厂家后端尚未启用"), 400
+        if fields["architecture"] == "cosmos_reason2_2b":
+            return jsonify(error="Cosmos 使用受控 HF 本地目录入口 /api/vlm/tasks，不支持普通文件/ONNX 上传"), 400
         if fields["vendor"] == "sophon":
             env = sophon_environment()
             if not env["ready"]:
@@ -141,11 +215,13 @@ def create_app(test_config=None):
 
     @app.get("/api/tasks/<task_id>")
     def get_task(task_id):
+        protect_vlm_task(task_id)
         task = manager.get(task_id)
         return jsonify(task) if task else (jsonify(error="任务不存在"), 404)
 
     @app.get("/api/tasks/<task_id>/events")
     def task_events(task_id):
+        protect_vlm_task(task_id)
         if not manager.get(task_id):
             abort(404)
         def stream():
@@ -156,17 +232,22 @@ def create_app(test_config=None):
                 if body != last:
                     yield f"data: {body}\n\n"
                     last = body
-                if task["status"] in ("completed", "failed"):
+                if task["status"] in ("completed", "failed", "canceled"):
                     break
                 time.sleep(0.75)
         return Response(stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/api/tasks/<task_id>/download/<kind>")
     def download(task_id, kind):
-        task = manager.tasks.get(task_id)
-        if not task or task["status"] != "completed" or kind not in {"model", "package"}:
+        task = protect_vlm_task(task_id)
+        if not task:
             abort(404)
-        path = Path(task["artifacts"][kind])
+        if kind == "log" and task.get("input_kind") == "hf_directory":
+            path = Path(task["work_dir"]) / "conversion.log"
+        elif task["status"] == "completed" and kind in {"model", "package", "manifest"} and kind in task["artifacts"]:
+            path = Path(task["artifacts"][kind])
+        else:
+            abort(404)
         if not path.is_file() or Path(task["work_dir"]).resolve() not in path.resolve().parents:
             abort(404)
         return send_file(path, as_attachment=True)

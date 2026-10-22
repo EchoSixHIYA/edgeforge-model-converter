@@ -21,13 +21,18 @@
       <div>
         <span class="overline">EDGE DEPLOYMENT CONSOLE</span>
         <h1>模型转换流水线</h1>
-        <p>上传原始训练权重，自动执行架构专用导出、芯片编译与可调用 SDK 封装。</p>
+        <p>上传原始训练权重，或从本机授权目录导入 HF 多模态模型，完成芯片编译与 SDK 封装。</p>
       </div>
       <div class="intro-badges"><span><b>{{ catalog|length }}</b> 官方模型</span><span><b>{{ catalog|selectattr('available')|list|length }}</b> 已验收可转换</span><span><b>SDK</b> 强制交付</span></div>
     </section>
 
-    <form id="convertForm" class="converter-grid" enctype="multipart/form-data">
-      <section class="left-column" id="converter">
+    <div class="workflow-switch" id="converter" role="tablist" aria-label="选择转换流程">
+      <button type="button" id="cvTab" class="workflow-tab active" role="tab" aria-selected="true" aria-controls="convertForm" data-workflow="cv"><b>原始权重转换</b><small>现有 CV / RKNN / BModel 流程</small></button>
+      <button type="button" id="vlmTab" class="workflow-tab" role="tab" aria-selected="false" aria-controls="vlmForm" data-workflow="vlm"><b>HF 视觉语言模型 <span class="experimental-label">实验性</span></b><small>Cosmos Reason 2 · Qwen3-VL 架构</small></button>
+    </div>
+
+    <form id="convertForm" class="converter-grid" enctype="multipart/form-data" role="tabpanel" aria-labelledby="cvTab">
+      <section class="left-column">
         <div class="panel hardware-panel">
           <div class="panel-heading"><span class="icon-box">◇</span><div><h2>硬件与模型</h2><p>选择目标平台和训练架构</p></div></div>
           <div class="field-grid">
@@ -95,25 +100,80 @@
       </aside>
     </form>
 
+    <form id="vlmForm" class="converter-grid hidden" role="tabpanel" aria-labelledby="vlmTab">
+      <section class="left-column">
+        <div class="panel hardware-panel">
+          <div class="panel-heading"><span class="icon-box">◇</span><div><h2>HF 多模态模型</h2><p>独立的 LLM / Vision 转换链路，不走单 ONNX 图像模型流程</p></div></div>
+          <div class="field-grid">
+            <label class="wide">模型 / 架构
+              <select id="vlmArchitecture" name="architecture"><option value="cosmos_reason2_2b">Cosmos Reason 2 2B · Qwen3-VL 架构（实验性）</option></select>
+            </label>
+            <label>芯片厂家<input value="SOPHGO · BModel" readonly aria-label="VLM 芯片厂家"></label>
+            <label>目标芯片<input value="BM1684X · 尚未板端验收" readonly aria-label="VLM 目标芯片"></label>
+          </div>
+          <div id="vlmReadiness" class="environment-note" role="status">正在检查 HF VLM 环境；未验证前不可视为可转换。</div>
+        </div>
+
+        <div class="panel local-import-panel">
+          <div class="panel-heading"><span class="icon-box">↳</span><div><h2>导入本机模型目录</h2><p>直接读取服务所在电脑的模型，不经浏览器上传大权重</p></div></div>
+          <label for="vlmModelDir">完整 Hugging Face 模型目录（绝对路径）</label>
+          <input id="vlmModelDir" name="model_dir" placeholder="/mnt/d/models/Cosmos-Reason2-2B" spellcheck="false" autocomplete="off" required aria-describedby="modelRootHelp">
+          <p class="field-help" id="modelRootHelp">请先在启动服务的电脑上用 <code>EDGEFORGE_MODEL_ROOTS</code> 配置允许导入的模型根目录。仅接受该根目录内的模型，并仅开放给本机回环访问；不提供任意文件系统浏览。WSL / Docker 请填写服务内部可见的路径，而非浏览器电脑的路径。</p>
+          <p class="field-help">目录须包含完整配置、tokenizer / processor 与权重分片；只有配置文件不能转换。此入口不受浏览器 4GB 上传限制，也不会下载缺失权重或执行模型目录中的自定义代码。</p>
+          <div class="preflight-actions"><button type="button" id="vlmPreflight" class="secondary">检查目录与编译环境</button><span id="vlmCheckHint">检查不会启动转换</span></div>
+          <div id="vlmPreflightResult" class="preflight-result hidden" aria-live="polite"></div>
+        </div>
+
+        <div class="pipeline-strip">
+          <div><i>1</i><span><b>完整性预检</b><small>目录、权重、工具链、资源</small></span></div><em>→</em>
+          <div><i>2</i><span><b>官方 VLM 编译链</b><small>语言网络、视觉网络、组合 BModel</small></span></div><em>→</em>
+          <div><i>3</i><span><b>多模态 SDK</b><small>模型、processor、推理示例</small></span></div>
+        </div>
+      </section>
+
+      <aside class="panel config-panel">
+        <div class="panel-heading"><span class="icon-box">≡</span><div><h2>LLM 编译预算</h2><p>参数会参与预检，并随任务保存</p></div></div>
+        <label>LLM 量化精度
+          <select name="precision" id="vlmPrecision">
+            <option value="w4bf16">W4BF16 · 4-bit 权重</option>
+            <option value="w8bf16">W8BF16 · 8-bit 权重</option>
+            <option value="bf16">BF16 · 更高内存占用</option>
+          </select>
+        </label>
+        <div class="field-grid vlm-budget-grid">
+          <label>上下文长度（token）<input id="vlmSeqLength" name="seq_length" type="number" min="256" max="8192" step="128" value="2048" required></label>
+          <label>编译并发数（jobs）<input id="vlmJobs" name="jobs" type="number" min="1" max="1" step="1" value="1" readonly title="实验性安全限制：当前仅支持 1 个编译任务"></label>
+          <label>每次视觉编码像素预算（max_pixels）<input id="vlmMaxPixels" name="max_pixels" type="number" min="65536" max="1048576" step="1024" value="147456" required></label>
+          <label>每图 / 每视频时序组视觉 token<input id="vlmVisualTokens" value="144（由像素预算计算）" readonly></label>
+        </div>
+        <div class="resource-warning"><b>先用小预算验证</b><p>像素预算用于每张图像或每个视频时序组（2 帧），并非整段视频的固定帧数限制。视频全部视觉 token 加上提示词、时间戳和生成内容仍须容纳在上下文内；运行时应明确设置采样帧数 / fps。实验阶段编译并发数锁定为 1，避免并发抬高主机内存峰值。预检仅提供估算，不能保证编译成功或板端性能。</p></div>
+        <label class="experimental-consent"><input type="checkbox" id="vlmAcknowledge" name="acknowledge_experimental"><span>我了解这是实验性接入，尚未用此模型完成真实编译、精度与 BM1684X 板端验收；预检通过不等于部署验证通过。</span></label>
+        <div class="delivery-note"><span>✓</span><p><b>成功编译后交付完整 SDK 包</b><small>失败任务只提供错误与日志，不会伪造 BModel 或 SDK 成功产物。</small></p></div>
+        <button class="primary" type="submit" id="vlmSubmit" disabled><span>请先完成预检</span><b>→</b></button>
+        <p class="form-error" id="vlmError" role="alert"></p>
+      </aside>
+    </form>
+
     <section class="jobs" id="jobs">
       <div class="jobs-head"><div class="panel-heading"><span class="icon-box">↻</span><div><h2>转换任务</h2><p>实时进度与历史产物</p></div></div><button id="refresh" class="secondary">刷新</button></div>
       <div class="jobs-table">
         <div class="table-head"><span>任务 / 模型</span><span>目标平台</span><span>状态与进度</span><span>创建时间</span><span>产物</span></div>
-        <div id="empty" class="empty"><span>□</span><b>还没有转换任务</b><small>完成上方配置并上传原始权重后，任务会显示在这里。</small></div>
+        <div id="empty" class="empty"><span>□</span><b>还没有转换任务</b><small>完成上方配置并提交转换后，任务会显示在这里。</small></div>
         <div id="jobList" class="job-list"></div>
+        <p id="tasksError" class="tasks-error hidden" role="status"></p>
       </div>
     </section>
 
     <section class="sdk-banner">
-      <div><span class="overline">DELIVERY STANDARD</span><h2>交付的是调用方案，不只是模型文件</h2><p>每个成功任务同时生成可安装 SDK，提供 <code>load</code>、<code>predict</code>、<code>infer_raw</code>、<code>postprocess</code> 和 CLI，并附可直接运行的使用示例。详细接口约定见 <a href="/docs/sdk-api">SDK API 文档</a>。</p></div>
-      <div class="code-preview"><span>example.py</span><pre>from edgeforge_sdk import EdgeModel
+      <div><span class="overline">DELIVERY STANDARD</span><h2>交付的是调用方案，不只是模型文件</h2><p>每个成功任务同时生成可安装 SDK。现有 CV 流程保留 <code>load</code>、<code>predict</code>、<code>infer_raw</code>、<code>postprocess</code>；HF VLM 使用独立的多模态生成接口，不复用图像检测输出格式。安装与运行步骤见各自包内说明，通用接口约定见 <a href="/docs/sdk-api">SDK API 文档</a>。</p></div>
+      <div class="code-preview"><span>example.py · CV 接口示例</span><pre>from edgeforge_sdk import YoloV8
 
-with EdgeModel() as model:
+with YoloV8("model") as model:
     results = model.predict("test.jpg")</pre></div>
     </section>
   </main>
 
-  <footer><div><b>EdgeForge</b><span>模型转换与边缘部署平台</span></div><span>RKNN-Toolkit2 · RKNN Model Zoo</span></footer>
+  <footer><div><b>EdgeForge</b><span>模型转换与边缘部署平台</span></div><span>RKNN-Toolkit2 · SOPHGO TPU-MLIR</span></footer>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

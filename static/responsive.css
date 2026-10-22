@@ -29,3 +29,16 @@ input {
     text-overflow: ellipsis;
   }
 }
+
+@media (max-width: 580px) {
+  .workflow-switch { flex-direction: column; gap: 10px; }
+  .workflow-tab { width: 100%; padding: 13px 16px; }
+  .workflow-tab b { font-size: 13px; }
+  .vlm-budget-grid { grid-template-columns: 1fr; }
+  .resource-summary { grid-template-columns: 1fr; }
+  .preflight-actions .secondary { width: 100%; height: auto; min-height: 38px; padding: 8px; }
+  .task-details { grid-column: 1/-1; }
+  .downloads { flex-wrap: wrap; }
+  .job-model small { overflow-wrap: anywhere; }
+  .experimental-label { margin-left: 2px; }
+}
