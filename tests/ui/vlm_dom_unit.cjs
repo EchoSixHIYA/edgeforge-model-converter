@@ -19,6 +19,7 @@ const nodes = {
   '#vlmArchitecture': {value: 'cosmos_reason2_2b'}, '#vlmModelDir': {value: ' /models/Cosmos '},
   '#vlmPrecision': {value: 'w4bf16'}, '#vlmSeqLength': {value: '2048'},
   '#vlmMaxPixels': {value: '147456'}, '#vlmJobs': {value: '1'}, '#vlmVisualTokens': {value: ''},
+  '#vlmLowMemoryPreset': {disabled: false}, '#vlmPresetHint': {textContent: ''},
   '#empty': {style: {}}, '#jobList': {rows: [], append(row) {this.rows.push(row);}, prepend(row) {this.rows.unshift(row);}},
 };
 const label = {textContent: ''};
@@ -75,6 +76,44 @@ assert.equal(context.vlmCheckedFingerprint, null);
 assert.equal(context.vlmSubmit.disabled, true);
 assert.equal(context.vlmCheckVersion, 2);
 assert.equal(nodes['#vlmVisualTokens'].value, '144（每图 / 每时序组）');
+// An opt-in preset changes only this form and invalidates a previously ready check.
+context.vlmCheckedFingerprint = context.vlmFingerprint();
+context.updateVlmSubmit();
+assert.equal(context.vlmSubmit.disabled, false);
+context.applyVlmLowMemoryPreset();
+assert.equal(nodes['#vlmPrecision'].value, 'w4bf16');
+assert.equal(nodes['#vlmSeqLength'].value, '1024');
+assert.equal(nodes['#vlmMaxPixels'].value, '65536');
+assert.equal(nodes['#vlmJobs'].value, '1');
+assert.equal(nodes['#vlmModelDir'].value, ' /models/Cosmos ');
+assert.equal(nodes['#vlmVisualTokens'].value, '64（每图 / 每时序组）');
+assert.equal(context.vlmCheckedFingerprint, null);
+assert.equal(context.vlmSubmit.disabled, true);
+assert.match(nodes['#vlmPresetHint'].textContent, /旧预检已失效/);
+context.vlmSubmitting = true;
+context.updateVlmSubmit();
+assert.equal(nodes['#vlmLowMemoryPreset'].disabled, true);
+nodes['#vlmSeqLength'].value = '2048';
+context.applyVlmLowMemoryPreset();
+assert.equal(nodes['#vlmSeqLength'].value, '2048'); // Do not mutate a submitting form.
+context.vlmSubmitting = false;
+context.applyVlmLowMemoryPreset();
+
+const memoryHtml = context.renderDeviceMemoryEstimate({status: 'analytical_not_measured', fit_assessed: false,
+  peak_memory_bytes: null, tpu_heap_available_bytes: null, board_system_total_bytes: null,
+  board_system_available_bytes: null, kv_cache_bytes: 0.1 * 1024 ** 3, explicit_device_buffers_bytes: 0.025 * 1024 ** 3,
+  scenarios: [{id: 'shared', label: '共享 embedding / lm_head', weight_bytes: 2 * 1024 ** 3,
+    known_component_sum_bytes: 2.125 * 1024 ** 3}], unknown_overheads: ['TPU workspace', malicious], assumptions: ['分析值，不是板测'], warnings: [malicious]});
+assert.match(memoryHtml, /已列计算项合计（非峰值）/);
+assert.match(memoryHtml, /2.13 GiB/);
+assert.match(memoryHtml, /TPU 可分配 heap/);
+assert.match(memoryHtml, /板端 Linux MemAvailable/);
+assert.match(memoryHtml, /未知/);
+assert.match(memoryHtml, /未判定可运行/);
+assert.ok(!memoryHtml.includes('<img'));
+assert.ok(!memoryHtml.includes('check-ready'));
+assert.match(context.renderDeviceMemoryEstimate(null), /尚无板端内存估算/);
+
 
 context.renderPreflight({ready: false, errors: [malicious], warnings: ['not board verified'],
   model: {name: malicious}, resources: {available_memory_bytes: 16 * 1024 ** 3}, parameters: context.vlmParameters()});
@@ -112,13 +151,13 @@ assert.equal(nodes['#jobList'].rows.length, 1);  // Updates replace, not duplica
   await context.requestVlm('/api/vlm/preflight', context.vlmParameters());
   assert.equal(request.headers['X-EdgeForge-Local-Import'], '1');
   const body = JSON.parse(request.body);
-  assert.equal(body.seq_length, 2176);
-  assert.equal(body.max_pixels, 147456);
+  assert.equal(body.seq_length, 1024);
+  assert.equal(body.max_pixels, 65536);
   assert.equal(body.jobs, 1);
   assert.equal(body.acknowledge_experimental, true);
   assert.equal(body.model_dir, '/models/Cosmos');
   assert.equal('max_frames' in body, false);
   await assert.rejects(context.readResponse({ok: false, status: 403, json: async () => ({error: 'loopback only'})}), /loopback only/);
   await assert.rejects(context.readResponse({ok: false, status: 502, json: async () => {throw new Error('HTML response');}}), /HTTP 502/);
-  console.log('PASS: VLM JS units (DOM stubs): parameter wiring, current-preflight+consent gate, edit invalidation+abort, resource output, XSS quotes/tags, task states/log/package controls, HTTP errors. No browser render/compiler/board exercised.');
+  console.log('PASS: VLM JS units (DOM stubs): parameter wiring, opt-in low-memory preset, separate unmeasured device-memory display, current-preflight+consent gate, edit invalidation+abort, resource output, XSS quotes/tags, task states/log/package controls, HTTP errors. No browser render/compiler/board exercised.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

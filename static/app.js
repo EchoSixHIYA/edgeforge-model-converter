@@ -168,6 +168,7 @@ function vlmFingerprint() { return JSON.stringify(vlmParameters()); }
 function updateVlmSubmit() {
   const checked = vlmCheckedFingerprint !== null && vlmCheckedFingerprint === vlmFingerprint();
   vlmSubmit.disabled = vlmSubmitting || !checked || !vlmAck.checked;
+  document.querySelector('#vlmLowMemoryPreset').disabled = vlmSubmitting;
   vlmSubmit.querySelector('span').textContent = vlmSubmitting ? '正在创建任务…'
     : !checked ? '请先完成预检' : !vlmAck.checked ? '请确认实验性说明' : '开始实验性转换';
 }
@@ -188,20 +189,56 @@ function invalidateVlmCheck() {
     ? `${Math.floor(pixels / 1024)}（每图 / 每时序组）` : '请填写有效像素预算';
   updateVlmSubmit();
 }
+function applyVlmLowMemoryPreset() {
+  if (vlmSubmitting) return;
+  document.querySelector('#vlmPrecision').value = 'w4bf16';
+  document.querySelector('#vlmSeqLength').value = '1024';
+  document.querySelector('#vlmMaxPixels').value = '65536';
+  document.querySelector('#vlmJobs').value = '1';
+  invalidateVlmCheck();
+  document.querySelector('#vlmPresetHint').textContent = '已应用本次低内存试验预设；旧预检已失效，请重新检查。不保证板端可运行，也不改变全局默认配置。';
+}
 vlmForm.querySelectorAll('input:not([readonly]):not([type="checkbox"]), select').forEach(input => {
   input.addEventListener('input', invalidateVlmCheck);
   input.addEventListener('change', invalidateVlmCheck);
 });
 vlmAck.addEventListener('change', updateVlmSubmit);
+document.querySelector('#vlmLowMemoryPreset').addEventListener('click', applyVlmLowMemoryPreset);
 
 function escapeHtml(value) {
   const element = document.createElement('span');
   element.textContent = String(value ?? '');
   return element.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function formatBytes(value) {
+function formatBytes(value, digits = 1) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '未知';
-  return `${(Number(value) / (1024 ** 3)).toFixed(1)} GiB`;
+  return `${(Number(value) / (1024 ** 3)).toFixed(digits)} GiB`;
+}
+function renderDeviceMemoryEstimate(estimate) {
+  const heading = '<h4>板端内存估算 · 未实测 / 未判定可运行</h4>';
+  if (!estimate || typeof estimate !== 'object') {
+    return `<section class="device-memory-note">${heading}<p>尚无板端内存估算。转换电脑的可用内存不是板端内存，也不能替代 TPU heap 检测。</p></section>`;
+  }
+  const scenarios = Array.isArray(estimate.scenarios) ? estimate.scenarios : [];
+  const rows = scenarios.map(scenario => `<div><dt>${escapeHtml(scenario.label || scenario.id)} · 理论权重</dt><dd>${escapeHtml(formatBytes(scenario.weight_bytes, 2))}</dd></div>
+    <div><dt>${escapeHtml(scenario.label || scenario.id)} · 已列计算项合计（非峰值）</dt><dd>${escapeHtml(formatBytes(scenario.known_component_sum_bytes, 2))}</dd></div>`).join('');
+  const measuredLabels = {
+    kv_cache_bytes: 'KV 缓存计算量', explicit_device_buffers_bytes: '显式设备 buffer 计算量',
+    peak_memory_bytes: '真实峰值内存', tpu_heap_available_bytes: 'TPU 可分配 heap',
+    board_system_total_bytes: '板端 Linux 可见总内存', board_system_available_bytes: '板端 Linux MemAvailable',
+  };
+  const measuredRows = Object.entries(measuredLabels).map(([key, label]) => `<div><dt>${label}</dt><dd>${escapeHtml(formatBytes(estimate[key], 2))}</dd></div>`).join('');
+  const unknown = Array.isArray(estimate.unknown_overheads) ? estimate.unknown_overheads : [];
+  const assumptions = Array.isArray(estimate.assumptions) ? estimate.assumptions : [];
+  const warnings = Array.isArray(estimate.warnings) ? estimate.warnings : [];
+  return `<section class="device-memory-note">${heading}
+    <p>以下仅为已列计算项，不是峰值、容量结论或板端可运行保证。物理 DDR 规格、Linux 可见内存与 TPU 可分配 heap 是不同口径；此预检没有检测板端 DDR 或 heap，必须另行实测。Linux MemAvailable 也不能替代 TPU heap。转换电脑资源不参与这个容量结论。</p>
+    <dl class="resource-summary">${rows}${measuredRows}</dl>
+    ${warnings.length ? `<ul class="check-warnings">${warnings.map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
+    <details class="check-metadata"><summary>估算假设与未计入项</summary>
+      <p>尚未计入 / 无法确定：${unknown.length ? unknown.map(escapeHtml).join('；') : 'TPU workspace、激活 / 图 I/O、对齐和运行时开销尚未实测。'}</p>
+      ${assumptions.length ? `<ul>${assumptions.map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
+    </details></section>`;
 }
 function renderPreflight(data) {
   vlmResult.className = `preflight-result ${data.ready === true ? 'check-ready' : 'check-blocked'}`;
@@ -215,12 +252,13 @@ function renderPreflight(data) {
   };
   const resourceRows = Object.entries(resourceLabels).filter(([key]) => key in resources)
     .map(([key, label]) => `<div><dt>${label}</dt><dd>${escapeHtml(formatBytes(resources[key]))}</dd></div>`).join('');
-  const metadata = {model: data.model || {}, parameters: data.parameters || {}, toolchain: data.toolchain || {}};
+  const metadata = {model: data.model || {}, parameters: data.parameters || {}, toolchain: data.toolchain || {}, device_memory_estimate: data.device_memory_estimate || null};
   vlmResult.innerHTML = `<h3>${data.ready === true ? '预检通过 · 仅允许实验性转换' : '尚不可转换 · 请先处理以下问题'}</h3>
     <p>${data.ready === true ? '这不是编译成功、模型精度或板端验收证明。修改参数或目录后须重新检查。' : '未创建转换任务，也未生成任何模型产物。'}</p>
     ${errors.length ? `<ul class="check-errors">${errors.map(error => `<li>${escapeHtml(error)}</li>`).join('')}</ul>` : ''}
     ${warnings.length ? `<ul class="check-warnings">${[...new Set(warnings)].map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
-    ${resourceRows ? `<dl class="resource-summary">${resourceRows}</dl>` : ''}
+    ${resourceRows ? `<h4 class="resource-section-title">转换电脑资源（不是板端内存）</h4><dl class="resource-summary">${resourceRows}</dl>` : ''}
+    ${renderDeviceMemoryEstimate(data.device_memory_estimate)}
     <details class="check-metadata"><summary>模型、参数与工具链检测详情</summary><pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre></details>`;
 }
 async function requestVlm(url, parameters, signal) {

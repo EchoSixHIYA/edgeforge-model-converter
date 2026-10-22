@@ -260,6 +260,104 @@ def toolchain_probe(root):
     return result
 
 
+def device_memory_estimate(params, config):
+    """Analytical components, NOT measured peak or target-device admission.
+
+    Qwen3-VL decoder matrices use the selected weight precision. Embeddings,
+    LM head, norms and the complete vision/DeepStack tower remain 16-bit.
+    Sharing in a combined BModel is an assumption until the artifact is measured.
+    Linux host MemAvailable and target Linux `free` are NOT TPU heap capacity.
+    """
+    result = {
+        "schema_version": 1, "status": "unavailable", "fit_assessed": False,
+        "peak_memory_bytes": None, "tpu_heap_available_bytes": None,
+        "board_system_total_bytes": None, "board_system_available_bytes": None,
+        "scenarios": [], "kv_cache_bytes": None, "explicit_device_buffers_bytes": None,
+        "unknown_overheads": [
+            "Compiler/runtime activation and workspace allocations, especially ViT attention",
+            "Graph input/output buffers, alignment/padding, repeated weights or KV storage",
+            "TPU/VPU/VPP/firmware memory partitions and actual free TPU heap",
+            "Board Linux/apps plus CPU tokenizer, image/video decode and processor RAM",
+        ],
+        "warnings": [
+            "板端内存未实测：以下仅是已列计算项，不是运行峰值、保证上界或可运行证明。",
+            "编译主机 RAM、板端 Linux free/available 与 TPU heap 是不同口径，不能相互替代。",
+            "平台未自动探测目标板物理 DDR/TPU heap；请另行实测，不能凭 free 读数或本估算自动判定可运行。",
+        ],
+    }
+    try:
+        validate_config(config)
+        precision = params["precision"]
+        if precision not in PRECISIONS:
+            raise ValueError("unsupported precision")
+        length = params["seq_length"]
+        t, v = config["text_config"], config["vision_config"]
+        h, intermediate, layers = t["hidden_size"], t["intermediate_size"], t["num_hidden_layers"]
+        kv_heads, head_dim = t["num_key_value_heads"], t["head_dim"]
+        vh, vi, depth = v["hidden_size"], v["intermediate_size"], v["depth"]
+        deepstack_count = len(v["deepstack_visual_indexes"])
+        merger_h = vh * v["spatial_merge_size"] ** 2
+        # Q/K/V/O + gated MLP matrices, then non-quantized norms.
+        matrices = layers * (2 * h * h + 2 * h * kv_heads * head_dim + 3 * h * intermediate)
+        norms = layers * (2 * h + 2 * head_dim) + h
+        embedding = t["vocab_size"] * h
+        patch = vh * v["in_channels"] * v["temporal_patch_size"] * v["patch_size"] ** 2 + vh
+        position = v["num_position_embeddings"] * vh
+        vision_blocks = depth * (4 * vh * vh + 2 * vh * vi + 9 * vh + vi)
+        merger_mlp = merger_h * merger_h + merger_h + merger_h * h + h
+        main_merger = 2 * vh + merger_mlp
+        deepstack_mergers = deepstack_count * (2 * merger_h + merger_mlp)
+        vision = patch + position + vision_blocks + main_merger + deepstack_mergers
+        bits = {"w4bf16": 4, "w8bf16": 8, "bf16": 16}[precision]
+        matrix_bytes = matrices * bits // 8
+        # Pinned BM1684X A16MatMul uses BF16 scale + UINT8 zero point per
+        # 64-weight group for this non-prequantized, asymmetric W4/W8 route.
+        quant_metadata = (matrices // 64) * 3 if bits < 16 else 0
+        kv = 2 * layers * kv_heads * head_dim * 2 * length
+        explicit_buffers = (1 + deepstack_count) * length * h * 2
+        shared_weights = matrix_bytes + quant_metadata + 2 * (norms + embedding + vision)
+        separate_head = embedding * 2
+        result.update(
+            status="analytical_not_measured", precision=precision, sequence_length=length,
+            max_pixels=params["max_pixels"], kv_cache_bytes=kv,
+            explicit_device_buffers_bytes=explicit_buffers,
+            parameter_counts={"decoder_quantizable_matrices": matrices, "decoder_and_final_norms": norms,
+                              "embedding": embedding, "vision_including_deepstack": vision},
+            weight_components_bytes={"decoder_matrix_payload": matrix_bytes,
+                                     "decoder_quantization_metadata": quant_metadata,
+                                     "decoder_and_final_norms": norms * 2,
+                                     "embedding": embedding * 2, "vision_including_deepstack": vision * 2,
+                                     "additional_unshared_lm_head": separate_head},
+            formulas={"kv_cache": "2 * layers * kv_heads * head_dim * 2 bytes * seq_length",
+                      "explicit_device_buffers": "(1 + deepstack_count) * seq_length * hidden_size * 2 bytes",
+                      "group_quantization_metadata": "decoder_matrix_parameters / 64 * (2-byte scale + 1-byte zero point) for W4/W8"},
+            assumptions=[
+                "Validated Cosmos Reason 2 2B config; batch=1, num_device=1, max_input_length=seq_length",
+                "BF16 KV/cache and listed buffers; no cross-call history; q_group_size=64; asymmetric quantization",
+                "Only decoder matrix weights use W4/W8; embedding, LM head and full vision tower stay 16-bit",
+                "Two embedding/LM-head storage assumptions; neither scenario is a measured lower/upper peak bound",
+                "max_pixels affects unestimated visual activations/workspace, not these persistent component formulas",
+            ],
+            scenarios=[
+                {"id": "shared_embedding_lm_head", "label": "假设 embedding / LM head 共享一份权重",
+                 "weight_bytes": shared_weights,
+                 "known_component_sum_bytes": shared_weights + kv + explicit_buffers},
+                {"id": "separate_embedding_lm_head", "label": "假设 LM head 另存一份权重",
+                 "weight_bytes": shared_weights + separate_head,
+                 "known_component_sum_bytes": shared_weights + separate_head + kv + explicit_buffers},
+            ],
+            sources=[
+                "https://github.com/sophgo/tpu-mlir/blob/" + TPU_MLIR_COMMIT + "/python/llm/LlmConverter.py",
+                "https://github.com/sophgo/tpu-mlir/blob/" + TPU_MLIR_COMMIT + "/python/llm/Qwen3VLConverter.py",
+                "https://github.com/sophgo/tpu-mlir/blob/" + TPU_MLIR_COMMIT + "/lib/Dialect/Tpu/Canonicalize/A16MatMul.cpp#L332-L410",
+                "https://github.com/sophgo/LLM-TPU/blob/" + RUNTIME_REVISION + "/models/Qwen3_VL/python_demo/chat.cpp",
+            ],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        result["reason"] = "需要已核验的 Cosmos Reason 2 2B 配置才能计算: " + str(exc)
+    return result
+
+
 def resource_report(work, weight_bytes):
     available = None
     try:
@@ -279,30 +377,36 @@ def resource_report(work, weight_bytes):
     # Deliberately conservative workspace estimate: float intermediates, per-graph
     # and combined models, SDK staging + ZIP. Not a measured compiler peak.
     estimate = max(20 * 1024**3, weight_bytes * 6)
-    return {"available_memory_bytes": available, "disk_free_bytes": free,
+    return {"memory_scope": "host_compiler_not_target_board",
+            "available_memory_bytes": available, "disk_free_bytes": free,
             "weight_bytes": weight_bytes, "estimated_work_disk_bytes": estimate,
             "minimum_memory_bytes": 6 * 1024**3, "estimate_is_measured": False}
 
 
 def preflight(root, model_dir, params, roots, work):
     report = {"ready": False, "errors": [], "warnings": [], "parameters": params,
-              "model": {}, "resources": {}, "toolchain": toolchain_probe(root)}
+              "model": {}, "resources": {}, "toolchain": toolchain_probe(root),
+              "device_memory_estimate": device_memory_estimate(params, {})}
     try:
         path = resolve_model_dir(model_dir, roots)
+        # Useful config-only analysis is kept even if missing weights/tokenizer
+        # subsequently block compilation; it never changes ready/fit status.
+        report["device_memory_estimate"] = device_memory_estimate(params, read_json(path / "config.json"))
         report["model"] = inspect_model(path)
         report["resources"] = resource_report(work, report["model"]["weight_bytes"])
         resources = report["resources"]
         if resources["disk_free_bytes"] < resources["estimated_work_disk_bytes"]:
             report["errors"].append("工作盘空间低于保守预估；需要至少 %.1f GiB 可用空间" % (resources["estimated_work_disk_bytes"] / 1024**3))
         if resources["available_memory_bytes"] is not None and resources["available_memory_bytes"] < resources["minimum_memory_bytes"]:
-            report["errors"].append("可用内存不足 6 GiB 的最低预检阈值；这不是实测峰值保证")
-        report["warnings"].append("RAM/磁盘预估不是实测峰值；即使预检通过仍可能 OOM。导出和编译均串行。")
+            report["errors"].append("编译主机可用内存不足 6 GiB 的最低预检阈值；不是板端内存要求或实测峰值保证")
+        report["warnings"].append("编译主机 RAM/磁盘预估不是实测峰值；即使预检通过仍可能 OOM。导出和编译均串行。")
         report["warnings"].append("仅核验配置、权重头部和依赖；未证明编译正确性、量化质量或 BM1684X 板端推理。")
         report["warnings"].append("max_pixels 是每次视觉调用的像素预算；视频还受时间分组、帧分辨率和总序列 token 上限约束。")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         report["errors"].append(str(exc))
     if not re.fullmatch(r"[A-Za-z0-9_./-]+", str(Path(work).resolve())):
         report["errors"].append("官方编译器内部使用 shell；任务工作目录必须只含 ASCII 字母、数字、_、-、/、.（请设置 DATA_DIR）")
+    report["warnings"].extend(report["device_memory_estimate"]["warnings"])
     report["errors"].extend(report["toolchain"].get("errors", []))
     report["ready"] = not report["errors"] and report["toolchain"].get("ready", False)
     return report
@@ -323,6 +427,7 @@ def compilation_manifest(params, model):
         "sequence_length": length, "max_input_length": length, "max_pixels": pixels,
         "lmhead_with_topk": False, "model_config": model["model_config"],
         "source_config_sha256": model["config_sha256"],
+        "device_memory_estimate": device_memory_estimate(params, model["model_config"]),
         "compile": {"seq_length": length, "max_input_length": length, "max_pixels": pixels,
                     "jobs": 1, "q_group_size": 64, "batch": 1, "num_device": 1,
                     "dynamic": False, "do_sample": True, "lmhead_with_topk": False,

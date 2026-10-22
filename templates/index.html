@@ -133,6 +133,11 @@
 
       <aside class="panel config-panel">
         <div class="panel-heading"><span class="icon-box">≡</span><div><h2>LLM 编译预算</h2><p>参数会参与预检，并随任务保存</p></div></div>
+        <div class="low-memory-preset">
+          <button type="button" id="vlmLowMemoryPreset" class="secondary">低内存试验预设（需实机验证）</button>
+          <p id="vlmPresetHint" class="field-help" role="status">仅按需修改本次配置：W4BF16 / 1024 token / 65536 pixels / jobs=1。默认配置不会改变；应用后需重新预检。</p>
+          <p class="field-help">板端物理 DDR、Linux 可见内存与 TPU 可分配 heap 是不同统计口径，不能互相替代。W4BF16 也不代表所有权重均为 4-bit。先用单图起测，再逐步增加少量视频帧；不保证任意固定帧数可运行。</p>
+        </div>
         <label>LLM 量化精度
           <select name="precision" id="vlmPrecision">
             <option value="w4bf16">W4BF16 · 4-bit 权重</option>

@@ -308,3 +308,102 @@ def test_staging_ignores_new_assets_index_and_weights_not_in_preflight_snapshot(
     with pytest.raises(RuntimeError, match="staging inspected"):
         VlmBModelBackend(ROOT).convert(source, work, vlm.parameters({}), {"python": sys.executable},
                                       {}, lambda *a: None, identities)
+
+
+def memory_config_fixture():
+    """Config geometry only, not weights and not a hardware acceptance fixture."""
+    return {
+        "model_type": "qwen3_vl", "architectures": ["Qwen3VLForConditionalGeneration"],
+        "tie_word_embeddings": True,
+        "text_config": {"hidden_size": 2048, "num_hidden_layers": 28, "num_attention_heads": 16,
+                        "num_key_value_heads": 8, "head_dim": 128, "intermediate_size": 6144,
+                        "vocab_size": 151936, "tie_word_embeddings": True, "dtype": "bfloat16",
+                        "rope_scaling": {"mrope_section": [24, 20, 20], "mrope_interleaved": True}},
+        "vision_config": {"depth": 24, "hidden_size": 1024, "num_heads": 16,
+                          "intermediate_size": 4096, "out_hidden_size": 2048, "patch_size": 16,
+                          "temporal_patch_size": 2, "spatial_merge_size": 2,
+                          "num_position_embeddings": 2304, "in_channels": 3,
+                          "deepstack_visual_indexes": [5, 11, 17]},
+    }
+
+
+def test_device_estimate_uses_mixed_precision_components_not_total_params_divided_by_two():
+    estimate = vlm.device_memory_estimate(vlm.parameters({"seq_length": 1024, "max_pixels": 65536}),
+                                           memory_config_fixture())
+    assert estimate["status"] == "analytical_not_measured"
+    assert estimate["parameter_counts"] == {
+        "decoder_quantizable_matrices": 1409286144, "decoder_and_final_norms": 123904,
+        "embedding": 311164928, "vision_including_deepstack": 406957056,
+    }
+    parts = estimate["weight_components_bytes"]
+    assert parts["decoder_matrix_payload"] == 704643072
+    assert parts["decoder_quantization_metadata"] == 66060288
+    assert parts["embedding"] == 622329856
+    assert parts["vision_including_deepstack"] == 813914112
+    shared, separate = estimate["scenarios"]
+    assert shared["weight_bytes"] == 2207195136
+    assert separate["weight_bytes"] == 2829524992
+    assert shared["known_component_sum_bytes"] == 2341412864
+    assert separate["known_component_sum_bytes"] == 2963742720
+    assert estimate["fit_assessed"] is False
+    for key in ("peak_memory_bytes", "tpu_heap_available_bytes", "board_system_total_bytes", "board_system_available_bytes"):
+        assert estimate[key] is None
+    assert estimate["unknown_overheads"] and estimate["warnings"]
+
+
+@pytest.mark.parametrize("length,kv_mib,extra_mib", [(512, 56, 8), (1024, 112, 16), (2048, 224, 32)])
+def test_device_kv_and_explicit_buffers_scale_with_sequence_not_host_ram(length, kv_mib, extra_mib):
+    params = vlm.parameters({"seq_length": length, "max_pixels": 65536})
+    estimate = vlm.device_memory_estimate(params, memory_config_fixture())
+    assert estimate["kv_cache_bytes"] == kv_mib * 1024**2
+    assert estimate["explicit_device_buffers_bytes"] == extra_mib * 1024**2
+    assert estimate["fit_assessed"] is False
+
+
+@pytest.mark.parametrize("precision,bits,metadata", [("w4bf16", 4, 66060288), ("w8bf16", 8, 66060288), ("bf16", 16, 0)])
+def test_device_estimate_precision_and_quantization_metadata(precision, bits, metadata):
+    estimate = vlm.device_memory_estimate(vlm.parameters({"precision": precision}), memory_config_fixture())
+    assert estimate["weight_components_bytes"]["decoder_matrix_payload"] == 1409286144 * bits // 8
+    assert estimate["weight_components_bytes"]["decoder_quantization_metadata"] == metadata
+    assert estimate["weight_components_bytes"]["vision_including_deepstack"] == 406957056 * 2
+
+
+def test_preflight_retains_config_memory_estimate_but_missing_weights_never_pass(tmp_path, monkeypatch):
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "config.json").write_text(json.dumps(memory_config_fixture()))
+    monkeypatch.setattr(vlm, "toolchain_probe", lambda root: {"ready": True, "errors": []})
+    report = vlm.preflight(ROOT, str(model), vlm.parameters({}), [tmp_path], tmp_path / "work")
+    assert report["ready"] is False and report["errors"]
+    assert report["device_memory_estimate"]["status"] == "analytical_not_measured"
+    assert report["device_memory_estimate"]["fit_assessed"] is False
+
+
+def test_host_preflight_ready_is_not_device_memory_fit_assessment(tmp_path, monkeypatch):
+    model = tmp_path / "model"
+    model.mkdir()
+    cfg = memory_config_fixture()
+    (model / "config.json").write_text(json.dumps(cfg))
+    monkeypatch.setattr(vlm, "toolchain_probe", lambda root: {"ready": True, "errors": []})
+    monkeypatch.setattr(vlm, "inspect_model", lambda path: {"weight_bytes": 1, "model_config": cfg})
+    monkeypatch.setattr(vlm, "resource_report", lambda *a: {
+        "memory_scope": "host_compiler_not_target_board", "available_memory_bytes": 64 * 1024**3,
+        "disk_free_bytes": 128 * 1024**3, "estimated_work_disk_bytes": 20 * 1024**3,
+        "minimum_memory_bytes": 6 * 1024**3,
+    })
+    report = vlm.preflight(ROOT, str(model), vlm.parameters({}), [tmp_path], tmp_path / "work")
+    assert report["ready"] is True  # Mocked compiler admission only, not board fit.
+    assert report["device_memory_estimate"]["fit_assessed"] is False
+    assert report["device_memory_estimate"]["tpu_heap_available_bytes"] is None
+    assert any("TPU heap" in warning for warning in report["warnings"])
+
+
+def test_manifest_records_device_estimate_without_changing_default_preset():
+    params = vlm.parameters({})
+    assert params["seq_length"] == 2048 and params["max_pixels"] == 147456
+    manifest = vlm.compilation_manifest(params, {"model_config": memory_config_fixture(), "config_sha256": "fixture"})
+    assert manifest["device_memory_estimate"]["kv_cache_bytes"] == 224 * 1024**2
+    assert manifest["device_memory_estimate"]["fit_assessed"] is False
+    assert manifest["board_validated"] is False
+    unknown = vlm.device_memory_estimate(params, {})
+    assert unknown["status"] == "unavailable" and unknown["scenarios"] == []

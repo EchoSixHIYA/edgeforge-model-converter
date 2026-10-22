@@ -52,3 +52,13 @@
 #jobs { scroll-margin-top: 85px; }
 
 .log-pending { color: var(--muted); font-size: 11px; }
+
+.low-memory-preset { padding: 12px; border: 1px solid #dfc79d; border-radius: 9px; background: #fffaf1; }
+.low-memory-preset .secondary { width: 100%; height: auto; min-height: 38px; padding: 9px 10px; line-height: 1.7; white-space: normal; }
+.low-memory-preset .field-help { margin-bottom: 0; }
+.device-memory-note { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.device-memory-note h4 { margin: 0 0 8px; color: var(--ink); font-size: 12px; }
+.device-memory-note .resource-summary { margin-top: 10px; }
+
+.resource-section-title { margin: 14px 0 0; color: var(--ink); font-size: 12px; }
+.device-memory-note > h4 { color: #8c4b0d; }

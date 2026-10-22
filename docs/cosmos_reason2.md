@@ -122,7 +122,69 @@ curl -sS http://localhost:5000/api/vlm/preflight \
 
 **jobs=1 真正控制两个层面：** wrapper 暂时启用官方 `gen_all_mlir()` 的串行分支并恢复原 debug 设置；同时覆盖 `converter.max_workers=1`，使官方 `GNU parallel -j 1` 生效。不仅仅设置 OMP，也不修改已安装官方源码。仍需保留足够单图编译内存。
 
-资源预检显示：当前可用 RAM（含 cgroup 限额）、工作盘余量、权重大小，以及 `max(20 GiB, 权重大小×6)` 的保守工作盘估算。低于该估算或可用 RAM <6 GiB 时拒绝启动；6 GiB 只是最低拦截阈值，**不是足够编译的保证或实测峰值**。大序列/视觉塔可能显著增加峰值，需要预留更多资源。日志、临时 MLIR/NPZ、子图 BModel 会留在任务目录用于排障，用户确认后自行清理。
+**编译主机资源**预检显示：运行 EdgeForge 的电脑当前可用 RAM（含 cgroup 限额）、工作盘余量、权重大小，以及 `max(20 GiB, 权重大小×6)` 的保守工作盘估算。低于该估算或主机可用 RAM <6 GiB 时拒绝启动；这是**编译电脑**的最低拦截阈值，不是板端容量要求，也**不是足够编译的保证或实测峰值**。大序列/视觉塔可能显著增加峰值，需要预留更多资源。日志、临时 MLIR/NPZ、子图 BModel 会留在任务目录用于排障，用户确认后自行清理。
+
+### 6.1 板端内存：计算项不等于实际峰值
+
+预检和生成 SDK 的 `compilation_manifest.json` 增加 `device_memory_estimate`。它始终记录 `fit_assessed=false`；未测量的峰值、TPU heap 和板端 Linux total/available 为 `null`，**不会因为主机预检通过就判断板端可运行**。
+
+必须分开三种口径：
+
+1. **编译主机 RAM**：在转换电脑上供 exporter/compiler 使用。
+2. **板端 Linux `free` total/available**：当前内核可见的系统内存，不必等于整板物理 DDR，也不等于 TPU 可用容量。资料中的物理容量与 `free` 读数不同不能直接选一个当 TPU 限额。
+3. **实际 TPU heap**：受 BSP、TPU/VPU/VPP/固件保留分区与当前占用影响，须用匹配 BSP 的官方工具/分区配置核对。若不同产品资料也相互冲突，应先确认实物版本和分区，不能写死成某个 6/8/12/16 GB 型号。
+
+**本次设备的一次匿名采样样例（不能作为所有板卡配置）：** Linux `free` total=5,820,072 KiB（约5.55 GiB）、available=4,821,884 KiB（约4.60 GiB）；另行实测 NPU 池 size=7,984,906,240 bytes（约7.436 GiB）、used=132,902,912 bytes，二者差额=7,852,003,328 bytes（约7.312 GiB）。这说明 Linux 与 NPU 池确实是不同口径，不能把前一个读数叫作“全板只有6GB”。物理 DDR 规格资料仍有冲突，不据此断言是12GB或16GB。
+
+该差额只是采样时 `size-used`，不是长期保留量、任意大小连续分配保证或未来推理可用量；当时工具显示的 peak=132,902,912 bytes **不是 Cosmos 加载/推理峰值**。此记录支持继续做 W4 实机试验，但不保证模型可运行。代码不会把这些样例数字写入任意目标设备的估算：API/manifest 仍明确未自动探测容量，运行前应重新采样实际目标板。
+
+以下按本入口固定的 2B 配置及官方实现推导，不读取设备、不代表实测：
+
+| 已列项 | 计算 |
+|---|---|
+| Decoder 可量化矩阵 | 1,409,286,144 个参数，W4 为 704,643,072 bytes |
+| W4/W8 group=64 元数据 | 每组 BF16 scale 2 bytes + UINT8 zero point 1 byte，共 66,060,288 bytes |
+| Embedding | 311,164,928 个参数 × 2 bytes |
+| ViT + 主 merger + 3 个 DeepStack merger | 406,957,056 个参数 × 2 bytes，**不按 W4** |
+| Decoder/最终 norms | 123,904 个参数 × 2 bytes |
+| KV cache | `2 × 28层 × 8 KV头 × 128维 × 2 bytes × seq_length` |
+| 官方显式额外 device buffers | `(1 + 3个DeepStack) × seq_length × 2048 × 2 bytes` |
+
+W4BF16 在 **seq=1024** 时，KV=112 MiB、上述显式额外 buffers=16 MiB：
+
+- 假设 combined BModel 的 embedding / tied LM head 共享一份权重：权重约 **2.056 GiB**，已列项合计约 **2.181 GiB**。
+- 假设 LM head 另存一份：权重约 **2.635 GiB**，已列项合计约 **2.760 GiB**。
+
+这是两种**存储假设**，不是实测上下界；不能把公开总参数数直接除以 2 当 W4 峰值。量化元数据来自固定版本 [A16MatMul 实现](https://github.com/sophgo/tpu-mlir/blob/43676b3fcf07f44158e63baaefe6c0e809d16890/lib/Dialect/Tpu/Canonicalize/A16MatMul.cpp#L332-L410)，图精度与共享意图见 [官方 LlmConverter](https://github.com/sophgo/tpu-mlir/blob/43676b3fcf07f44158e63baaefe6c0e809d16890/python/llm/LlmConverter.py)。
+
+**没有算进合计：**编译器/运行时 workspace、ViT 激活与注意力临时张量、图输入输出、对齐、可能的重复权重/KV分配，以及 Linux 应用、CPU tokenizer、图片/视频解码和 processor RAM。因此这些数字不能直接与 `free.available` 比较后宣称能跑。减少 `max_pixels` 会影响尚未估算的视觉激活/工作区；上表权重与 KV 公式不随像素预算改变，并不表示视觉分辨率没有内存影响。
+
+### 6.2 低内存试验预设（不改变默认、不保证适配）
+
+网页“低内存试验预设”只填写本次 `w4bf16 / seq_length=1024 / max_pixels=65536 / jobs=1` 并使旧预检失效；全局默认仍是 2048 / 147456。它不是“6 GB 可运行”认证。
+
+```bash
+.venv/bin/python scripts/convert_cosmos.py \
+  --model-dir /mnt/models/Cosmos-Reason2-2B \
+  --precision w4bf16 --seq-length 1024 --max-pixels 65536 --jobs 1 \
+  --acknowledge-experimental
+```
+
+实际板端应先确认 TPU heap，再按小步验证并记录真实系统/TPU 峰值；任何 OOM、图 shape 不符或 token 超限都停止本轮，不增加负载：
+
+```bash
+# 在按 VLM_README.md 安装好的生成 SDK 中，先做一张图片。
+python example.py --model model --prompt 'Describe the image briefly.' \
+  --image image.jpg --max-pixels 65536 --max-new-tokens 64
+
+# 只有单图通过后，才试短视频的4个实际采样帧；不是保证4帧能跑。
+python example.py --model model --prompt 'Describe the short clip briefly.' \
+  --video short.mp4 --num-frames 4 --max-frames 4 \
+  --min-pixels 4096 --max-pixels 65536 --video-total-pixels 262144 \
+  --max-new-tokens 64
+```
+
+视频仍需实际时间戳、temporal2 分组和整个 prompt 的序列预算检查；帧数少、分辨率低也不能代替真实 heap/峰值核验。通过后再逐项增加输出长度或媒体预算，不同时扩大多个参数。
 
 ## 7. 产物与验收
 

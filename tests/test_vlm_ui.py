@@ -88,3 +88,18 @@ def test_vlm_javascript_logic_with_dom_stubs():
                             cwd=ROOT, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS:" in result.stdout
+
+
+def test_low_memory_preset_is_opt_in_and_preserves_global_defaults(rendered):
+    body, elements = rendered
+    assert elements.ids["vlmLowMemoryPreset"][1]["type"] == "button"
+    assert "低内存试验预设（需实机验证）" in body
+    assert elements.ids["vlmSeqLength"][1]["value"] == "2048"
+    assert elements.ids["vlmMaxPixels"][1]["value"] == "147456"
+    assert "物理 DDR、Linux 可见内存与 TPU 可分配 heap" in body
+    assert "6GB" not in body  # No device capacity is inferred from Linux free output.
+    script = (ROOT / "static" / "app.js").read_text()
+    assert "applyVlmLowMemoryPreset" in script
+    assert "device_memory_estimate" in script
+    assert "已列计算项合计（非峰值）" in script
+    assert "转换电脑资源（不是板端内存）" in script
