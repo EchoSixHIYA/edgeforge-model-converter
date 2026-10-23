@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, feat/cosmos-reason2-sophon-20261022]
+    branches: [main, dev, feat/cosmos-reason2-sophon-20261022]
 
 permissions:
   contents: read

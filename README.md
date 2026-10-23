@@ -2,6 +2,8 @@
 
 后续接入其他模型仓库前，请先阅读 [模型仓库接入指南](转换接入文档/MODEL_REPOSITORY_INTEGRATION.md)。SDK 调用方请阅读 [SDK API 说明](转换接入文档/SDK_API.md)。
 
+本机 PR 验证与后续修改使用 `dev` 分支，启动和测试方法见 [dev 开发指南](docs/development.md)。
+
 部署在 WSL2 Ubuntu 的 Flask 服务。宿主机浏览器上传训练模型后，服务按架构完成 RKNN 友好 ONNX、RKNN 构建，并把对应 RKNN Model Zoo 官方 Python/C++ 示例与模型一起封装为 SDK。
 
 ## 当前能力

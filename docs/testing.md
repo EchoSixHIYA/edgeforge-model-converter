@@ -3,7 +3,7 @@
 ## GitHub Actions 检查范围
 
 [Lightweight CI](../.github/workflows/lightweight-ci.yml) 对目标为 `main` 的
-`pull_request`，以及 `main` / `feat/cosmos-reason2-sophon-20261022` 的 `push`
+`pull_request`，以及 `main` / `dev` / `feat/cosmos-reason2-sophon-20261022` 的 `push`
 运行。保留 feature 分支 push 作为首次接入的验证入口，因此同一 PR 提交可能同时
 产生 push 和 pull_request 两个有超时限制的 run；二者不是两份不同的验收证据。
 只有 `contents: read`，checkout 不保留凭据，无 secrets、无
