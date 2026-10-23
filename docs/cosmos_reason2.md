@@ -21,8 +21,8 @@
 官方 1.28.1 PyPI wheel 使用 Ubuntu 22.04 / glibc >= 2.35 与 Python 3.10，并固定 Transformers 5.3.0。Ubuntu-20.04 的 glibc 2.31 不适用于本链路：wheel 注入的 glibc 库会与旧系统加载器混用，使 GNU parallel、model_tool 等进程崩溃。安装器和 worker 会在导入工具包之前明确拒绝此环境。本仓库提供显式运行的独立安装器（不自动执行、不下载模型、不装系统包）：
 
 ```bash
-# 先由系统管理员安装 Python 3.10、venv、GNU parallel 等。
-# 例：Ubuntu 对应发行版的软件源中安装 python3.10-venv 与 parallel。
+# 先由系统管理员安装 Python 3.10、venv、GNU parallel 和 PPL JIT 构建工具。
+# Ubuntu 22.04：apt install python3.10-venv parallel cmake build-essential
 COSMOS_PYTHON=python3.10 bash scripts/setup_cosmos_compiler.sh
 export EDGEFORGE_LLM_PYTHON="$PWD/.venv-cosmos-compiler/bin/python"
 ```

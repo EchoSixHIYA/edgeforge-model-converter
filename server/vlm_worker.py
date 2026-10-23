@@ -21,6 +21,15 @@ import sys
 VERSION = "1.28.1"
 
 
+def validate_compiler_tools():
+    # ViT PPL kernels are compiled on demand, after graph export. Check their
+    # host build tools up front rather than failing deep inside ppl_jit.sh.
+    tools = ("model_deploy.py", "model_tool", "tpuc-opt", "parallel", "cmake", "make", "gcc", "g++")
+    missing = [name for name in tools if not shutil.which(name)]
+    if missing:
+        raise RuntimeError("Missing official compiler prerequisites: " + ", ".join(missing))
+
+
 def validate_host_runtime():
     # The pinned wheel bundles glibc 2.35. Mixing it with the older Ubuntu
     # 20.04 loader can crash even /usr/bin/perl (and thus GNU parallel).
@@ -52,9 +61,7 @@ def initialize_toolchain():
     entry = base / "python" / "tools" / "llm_convert.py"
     if not entry.is_file():
         raise RuntimeError(f"Official llm_convert.py not found in installed wheel: {entry}")
-    for name in ("model_deploy.py", "model_tool", "tpuc-opt", "parallel"):
-        if not shutil.which(name):
-            raise RuntimeError(f"Missing official compiler prerequisite: {name}")
+    validate_compiler_tools()
     result = subprocess.run(["parallel", "--version"], capture_output=True, text=True, timeout=10)
     if result.returncode:
         raise RuntimeError(

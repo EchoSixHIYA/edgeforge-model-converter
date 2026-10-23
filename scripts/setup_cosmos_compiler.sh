@@ -9,6 +9,12 @@ if ! command -v "$PYTHON" >/dev/null; then
 fi
 "$PYTHON" -c 'import sys; assert sys.version_info[:2] == (3, 10), "Python 3.10 required"'
 "$PYTHON" -c 'import platform; name, version = platform.libc_ver(); assert name == "glibc" and tuple(map(int, version.split(".")[:2])) >= (2, 35), "TPU-MLIR 1.28.1 requires glibc >= 2.35; use Ubuntu 22.04+"'
+for tool in cmake make gcc g++; do
+  if ! command -v "$tool" >/dev/null; then
+    echo "Missing host build tool: $tool. Install cmake and build-essential using your OS package manager." >&2
+    exit 1
+  fi
+done
 if ! command -v parallel >/dev/null || ! parallel --version | head -1 | grep -q 'GNU parallel'; then
   echo 'Install GNU parallel using your OS package manager before continuing.' >&2; exit 1
 fi
