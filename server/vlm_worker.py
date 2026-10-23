@@ -11,6 +11,7 @@ import importlib.metadata
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import runpy
 import shutil
@@ -20,7 +21,21 @@ import sys
 VERSION = "1.28.1"
 
 
+def validate_host_runtime():
+    # The pinned wheel bundles glibc 2.35. Mixing it with the older Ubuntu
+    # 20.04 loader can crash even /usr/bin/perl (and thus GNU parallel).
+    if sys.platform == "linux":
+        name, version = platform.libc_ver()
+        if name == "glibc" and version:
+            numbers = tuple(int(part) for part in version.split(".")[:2])
+            if numbers < (2, 35):
+                raise RuntimeError(
+                    f"TPU-MLIR {VERSION} requires glibc >= 2.35 (Ubuntu 22.04+); "
+                    f"this host has glibc {version}. Use Ubuntu-22.04 or the official compiler container.")
+
+
 def initialize_toolchain():
+    validate_host_runtime()
     if sys.version_info[:2] != (3, 10):
         raise RuntimeError("TPU-MLIR 1.28.1 wheel requires Python 3.10; set EDGEFORGE_LLM_PYTHON to its isolated venv")
     actual = importlib.metadata.version("tpu_mlir")
@@ -41,7 +56,11 @@ def initialize_toolchain():
         if not shutil.which(name):
             raise RuntimeError(f"Missing official compiler prerequisite: {name}")
     result = subprocess.run(["parallel", "--version"], capture_output=True, text=True, timeout=10)
-    if result.returncode or "GNU parallel" not in result.stdout:
+    if result.returncode:
+        raise RuntimeError(
+            f"GNU parallel version probe failed (exit={result.returncode}): "
+            f"{result.stderr.strip() or 'no diagnostic output; check host runtime/library compatibility'}")
+    if "GNU parallel" not in result.stdout:
         raise RuntimeError("GNU parallel is required, not another program named parallel")
     importlib.metadata.version("torch")
     return entry

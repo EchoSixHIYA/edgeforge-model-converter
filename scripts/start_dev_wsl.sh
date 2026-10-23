@@ -2,6 +2,11 @@
 # Local PR testing: use an independent ASCII task path for the VLM compiler.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEV_CONFIG="${EDGEFORGE_DEV_CONFIG:-$ROOT/data/dev.env}"
+if [[ -f "$DEV_CONFIG" ]]; then
+  # This is a trusted, local-only shell config under the ignored data directory.
+  source "$DEV_CONFIG"
+fi
 DEV_STATE="${EDGEFORGE_DEV_STATE:-/home/$(id -un)/.edgeforge-model-converter-dev}"
 export EDGEFORGE_DATA_DIR="${EDGEFORGE_DATA_DIR:-$DEV_STATE/tasks}"
 mkdir -p "$EDGEFORGE_DATA_DIR"

@@ -18,7 +18,7 @@
 
 在 Linux x86_64 / WSL2 的**本机**运行。编译不要求 GPU，但内存和临时磁盘需求较大。启动服务的基础环境沿用项目依赖；不要把大模型依赖升级进原 RKNN/Paddle/TF/CV 环境。
 
-官方 1.28.1 PyPI wheel 要求 Python 3.10，并固定 Transformers 5.3.0。本仓库提供显式运行的独立安装器（不自动执行、不下载模型、不装系统包）：
+官方 1.28.1 PyPI wheel 使用 Ubuntu 22.04 / glibc >= 2.35 与 Python 3.10，并固定 Transformers 5.3.0。Ubuntu-20.04 的 glibc 2.31 不适用于本链路：wheel 注入的 glibc 库会与旧系统加载器混用，使 GNU parallel、model_tool 等进程崩溃。安装器和 worker 会在导入工具包之前明确拒绝此环境。本仓库提供显式运行的独立安装器（不自动执行、不下载模型、不装系统包）：
 
 ```bash
 # 先由系统管理员安装 Python 3.10、venv、GNU parallel 等。
@@ -28,6 +28,8 @@ export EDGEFORGE_LLM_PYTHON="$PWD/.venv-cosmos-compiler/bin/python"
 ```
 
 安装器选择 CPU Torch 2.4.0 / torchvision 0.19.0、`tpu_mlir==1.28.1`、`transformers==5.3.0`、`setuptools==75.8.0`。不使用 `tpu_mlir[torch]`（旧 Torch extra 与 Transformers 5.3 的要求冲突），固定 setuptools 保留官方初始化所需的 `pkg_resources`。安装后 `pip check` 与 worker probe 必须通过。**这组环境在本次云执行中未完整安装或实跑模型，真实兼容性仍须本机验证。**
+
+2026-10-23 本机补充：Ubuntu-22.04 的独立编译环境已完成上述固定版本安装，`pip check` 和真实 worker `--probe` 通过；原始 Cosmos 权重目录通过预检。此记录不等同于完整模型编译或板端推理成功。
 
 worker 先调用官方包初始化工具路径，再启动新的 Python 进程让 `LD_LIBRARY_PATH` 生效，然后导入真实编译器模块。Web/CLI 只启动隔离解释器，不导入这些依赖到 Flask 内。
 

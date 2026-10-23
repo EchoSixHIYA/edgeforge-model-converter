@@ -15,11 +15,24 @@ from server import vlm
 from server.backends.vlm_bmodel import VlmBModelBackend
 from server.pipeline import Pipeline
 from server.tasks import TaskManager
-from server.vlm_worker import apply_controls
+from server.vlm_worker import apply_controls, validate_host_runtime
 from server.web import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = {"X-EdgeForge-Local-Import": "1"}
+
+
+def test_compiler_rejects_old_glibc_before_native_tools_crash(monkeypatch):
+    monkeypatch.setattr("server.vlm_worker.sys.platform", "linux")
+    monkeypatch.setattr("server.vlm_worker.platform.libc_ver", lambda: ("glibc", "2.31"))
+    with pytest.raises(RuntimeError, match="Ubuntu 22.04"):
+        validate_host_runtime()
+
+
+def test_compiler_accepts_supported_glibc(monkeypatch):
+    monkeypatch.setattr("server.vlm_worker.sys.platform", "linux")
+    monkeypatch.setattr("server.vlm_worker.platform.libc_ver", lambda: ("glibc", "2.35"))
+    validate_host_runtime()
 
 
 def test_vlm_schema_and_manifest_are_explicit():
