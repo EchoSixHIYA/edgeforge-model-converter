@@ -1,20 +1,28 @@
 /* Browser-only regression; mocked task success is NOT a real conversion.
  * Run a local Flask app, then:
  * EDGEFORGE_UI_URL=http://127.0.0.1:5127 node tests/ui/vlm_workflow.cjs
- * Uses an existing Playwright install and Chromium; no project dependency added.
+ * Install the pinned test-only dependency with npm ci --prefix tests/ui.
+ * Defaults to Playwright-managed Chromium; CHROMIUM_PATH is an explicit override.
  */
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const baseURL = process.env.EDGEFORGE_UI_URL || 'http://127.0.0.1:5127';
-const output = process.env.EDGEFORGE_UI_OUTPUT || '/tmp/edgeforge-vlm-ui';
+const output = process.env.EDGEFORGE_UI_OUTPUT || path.join(os.tmpdir(), 'edgeforge-vlm-ui');
 fs.mkdirSync(output, {recursive: true});
 
 (async () => {
-  const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox']});
+  const launchOptions = {headless: true};
+  if (process.env.CHROMIUM_PATH) launchOptions.executablePath = process.env.CHROMIUM_PATH;
+  const browser = await chromium.launch(launchOptions);
+  const context = await browser.newContext({viewport: {width: 1440, height: 1100}});
+  const page = await context.newPage();
+  page.setDefaultTimeout(10000);
+  page.setDefaultNavigationTimeout(15000);
+  await context.tracing.start({screenshots: true, snapshots: true, sources: true});
   try {
-    const page = await browser.newPage({viewport: {width: 1440, height: 1100}});
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     let tasks = [];
@@ -170,5 +178,11 @@ fs.mkdirSync(output, {recursive: true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     console.log('PASS: HF VLM UI / payloads / stale preflight / denial / acknowledgment / duplicate submit / logs / cancellation / downloads / CV upload regression / mobile layout. Mocked outcomes only; no compiler or board tests.');
-  } finally { await browser.close(); }
+  } catch (error) {
+    await page.screenshot({path: path.join(output, 'vlm-failure.png'), fullPage: true}).catch(() => {});
+    throw error;
+  } finally {
+    try { await context.tracing.stop({path: path.join(output, 'trace.zip')}); }
+    finally { await browser.close(); }
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });

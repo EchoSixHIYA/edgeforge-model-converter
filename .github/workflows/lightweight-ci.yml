@@ -1,0 +1,194 @@
+name: Lightweight CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, feat/cosmos-reason2-sophon-20261022]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lightweight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-tests:
+    name: Linux hardware-free tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install lightweight dependencies and host C++ compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends g++
+          python -m pip install -r requirements-test.txt
+          python -m pip check
+          python --version
+          node --version
+          g++ --version
+          git --version
+          bash --version
+      - name: Python, JavaScript and shell syntax
+        run: |
+          for directory in server scripts sdk_template/edgeforge_sdk tests; do test -d "$directory"; done
+          python -m compileall -q app.py server scripts sdk_template/edgeforge_sdk tests
+          node --check static/app.js
+          node --check tests/ui/vlm_workflow.cjs
+          while IFS= read -r -d '' script; do bash -n "$script"; done < <(git ls-files -z '*.sh')
+      - name: Pytest including compiled CPU sampler (report all skips)
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          python -m pytest -q -ra --junitxml=artifacts/pytest-linux.xml | tee artifacts/pytest-linux.txt
+      - name: Reject unexpected Linux skips
+        run: |
+          python - <<'PYTEST_RESULT'
+          import xml.etree.ElementTree as ET
+          suites = ET.parse('artifacts/pytest-linux.xml').getroot().findall('.//testsuite')
+          assert suites, 'No pytest suites reported'
+          skipped = sum(int(suite.get('skipped', 0)) for suite in suites)
+          assert skipped == 0, f'{skipped} unexpected Linux skips; inspect pytest -ra output and JUnit'
+          PYTEST_RESULT
+      - name: Standalone DOM-stub regression
+        run: node tests/ui/vlm_dom_unit.cjs
+      - name: Publish exact pytest outcome in job summary
+        if: always()
+        run: |
+          if [ -f artifacts/pytest-linux.txt ]; then
+            printf '### Linux hardware-free pytest (not model/board acceptance)\n```text\n' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 45 artifacts/pytest-linux.txt >> "$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-linux
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows-checkout:
+    name: Windows LF checkout and shell regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Exercise the Windows autocrlf checkout setting
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the checkout-test dependency only
+        run: python -m pip install pytest==8.3.5
+      - name: Test LF bytes and Git Bash parsing (not a Windows compiler claim)
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          command -v bash
+          set -o pipefail
+          python -m pytest -q -ra tests/test_shell_portability.py --junitxml=artifacts/pytest-windows-checkout.xml | tee artifacts/pytest-windows-checkout.txt
+          python - <<'PYTEST_RESULT'
+          import xml.etree.ElementTree as ET
+          suites = ET.parse('artifacts/pytest-windows-checkout.xml').getroot().findall('.//testsuite')
+          assert suites, 'No checkout-test suites reported'
+          skipped = sum(int(suite.get('skipped', 0)) for suite in suites)
+          assert skipped == 0, f'{skipped} checkout skips; Git and Bash coverage is required in this job'
+          PYTEST_RESULT
+          node --check static/app.js
+          node tests/ui/vlm_dom_unit.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-windows-checkout
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  browser-ui:
+    name: Chromium UI regression (mocked conversion APIs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EDGEFORGE_UI_URL: http://127.0.0.1:5127
+      EDGEFORGE_UI_OUTPUT: artifacts/browser
+      EDGEFORGE_MODEL_ROOTS: ''
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/ui/package-lock.json
+      - name: Install the app and pinned browser-test dependencies
+        run: |
+          python -m pip install -r requirements-test.txt
+          npm ci --prefix tests/ui
+      - name: Install Playwright-managed Chromium and OS libraries
+        working-directory: tests/ui
+        run: npx playwright install --with-deps chromium
+      - name: Start loopback Flask and exercise the real browser
+        env:
+          EDGEFORGE_DATA_DIR: ${{ runner.temp }}/edgeforge-ui-tasks
+        run: |
+          mkdir -p artifacts/browser
+          python -m flask --app app run --host 127.0.0.1 --port 5127 --no-reload > artifacts/browser/flask.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import os, time, urllib.request
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(os.environ['EDGEFORGE_UI_URL'], timeout=1) as response:
+                      if response.status == 200:
+                          break
+              except OSError:
+                  pass
+              time.sleep(0.2)
+          else:
+              raise SystemExit('Flask did not become ready within 30 seconds')
+          PY
+          set -o pipefail
+          timeout 180s node tests/ui/vlm_workflow.cjs | tee artifacts/browser/browser.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chromium-ui-mocked-apis
+          path: artifacts/browser/
+          if-no-files-found: warn
+          retention-days: 14

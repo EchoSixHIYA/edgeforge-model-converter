@@ -207,7 +207,8 @@ def test_mutated_source_cannot_reach_official_worker(tmp_path):
         VlmBModelBackend(ROOT).convert(source, work, vlm.parameters({}), {}, {}, lambda *a: None, {"config.json": identity})
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups are required by official GNU parallel route")
+@pytest.mark.skipif(not sys.platform.startswith("linux"),
+                    reason="Linux /proc and POSIX process groups are required to verify descendant termination")
 def test_cancel_kills_sigterm_ignoring_descendant_even_if_leader_exits(tmp_path):
     marker = tmp_path / "child_ready"
     child_code = "import os,signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);open(%r,'w').write(str(os.getpid()));time.sleep(60)" % str(marker)

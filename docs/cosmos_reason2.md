@@ -198,7 +198,9 @@ python example.py --model model --prompt 'Describe the short clip briefly.' \
 # 建议另建轻量测试 venv；不需要安装 Torch、TPU-MLIR、RKNN 或板卡驱动。
 python3 -m venv .venv-test
 .venv-test/bin/python -m pip install -r requirements-test.txt
-.venv-test/bin/python -m pytest -q
+.venv-test/bin/python -m pytest -q -ra
 ```
+
+每次报告保留 passed / skipped / failed 和 `-ra` 原因；不能把 `145 passed, 1 skipped` 写成 146/146 全通过。CI 范围、各 skip 条件和 Windows 已有 checkout 的处理见 [测试与验收说明](testing.md)。
 
 本机下一步验收顺序：完整权重预检 → 实际导出/编译 → 校对 combined graphs → 生成包安装 → BM1684X 图片/视频生成 → 与原模型相同采样/停止参数对比。只有这些实测通过后，才能另行提高目录的 verified/available 状态。

@@ -1,0 +1,2 @@
+# Shell scripts are also invoked from WSL after a Windows Git checkout.
+*.sh text eol=lf

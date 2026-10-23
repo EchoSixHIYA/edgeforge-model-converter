@@ -80,7 +80,9 @@ python scripts/smoke_bmodel.py path/to/sdk.zip --require-bmrt
 ## 测试
 
 ```bash
-/home/$(id -un)/.edgeforge-model-converter-venv/bin/pytest -q
+/home/$(id -un)/.edgeforge-model-converter-venv/bin/python -m pytest -q -ra
 ```
 
-硬件无关测试依赖可在独立 venv 中用 `pip install -r requirements-test.txt` 安装，再运行 `python -m pytest -q`；不需要 Torch、RKNN-Toolkit2 或 TPU-MLIR。真实转换仍需要对应官方工具链。
+硬件无关测试依赖可在独立 venv 中用 `pip install -r requirements-test.txt` 安装，再运行 `python -m pytest -q -ra`；不需要 Torch、RKNN-Toolkit2 或 TPU-MLIR。真实转换仍需要对应官方工具链。
+
+轻量 GitHub Actions、跳过项解释、Windows 换行修复及真实验收边界见 **[测试与验收说明](docs/testing.md)**。CI 通过不等于真实模型编译或上板通过。

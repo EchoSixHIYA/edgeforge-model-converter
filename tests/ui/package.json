@@ -1,0 +1,13 @@
+{
+  "name": "edgeforge-ui-regression",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-only regression with mocked conversion APIs; not hardware acceptance",
+  "scripts": {
+    "test:dom": "node vlm_dom_unit.cjs",
+    "test:browser": "node vlm_workflow.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
