@@ -269,6 +269,7 @@ def test_mock_official_process_requires_real_artifact_contract(tmp_path, monkeyp
     source, work = tmp_path / "source", tmp_path / "work"
     source.mkdir(); work.mkdir()
     params = vlm.parameters({})
+    monkeypatch.setenv("PPL_CACHE_PATH", str(tmp_path / "stale-global-cache"))
     manifest = vlm.compilation_manifest(params, {"model_config": {}, "config_sha256": "test"})
     seen = {}
     class FakeProcess:
@@ -301,6 +302,10 @@ def test_mock_official_process_requires_real_artifact_contract(tmp_path, monkeyp
     assert seen["kwargs"]["start_new_session"] is True
     assert seen["kwargs"]["env"]["CUDA_VISIBLE_DEVICES"] == ""
     assert seen["kwargs"]["env"]["HF_HUB_OFFLINE"] == "1"
+    assert seen["kwargs"]["env"]["PPL_CACHE_PATH"] == str(work / "ppl_cache")
+    assert (work / "ppl_cache").is_dir()
+    assert not (tmp_path / "stale-global-cache").exists()
+    assert f"PPL JIT task-local cache: {work / 'ppl_cache'}" in (work / "conversion.log").read_text()
     assert "--jobs" in seen["command"]
     assert "--dry_run" not in seen["command"]
     assert "--only_mlir" not in seen["command"]

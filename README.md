@@ -2,14 +2,14 @@
 
 后续接入其他模型仓库前，请先阅读 [模型仓库接入指南](转换接入文档/MODEL_REPOSITORY_INTEGRATION.md)。SDK 调用方请阅读 [SDK API 说明](转换接入文档/SDK_API.md)。
 
-本机 PR 验证与后续修改使用 `dev` 分支，启动和测试方法见 [dev 开发指南](docs/development.md)。
+本机开发与 PR 验证使用 `dev` 分支，启动和测试方法见 [dev 开发指南](docs/development.md)。
 
 部署在 WSL2 Ubuntu 的 Flask 服务。宿主机浏览器上传训练模型后，服务按架构完成 RKNN 友好 ONNX、RKNN 构建，并把对应 RKNN Model Zoo 官方 Python/C++ 示例与模型一起封装为 SDK。
 
 ## 当前能力
 
 - 工作台目录覆盖仓库内固定版 RKNN Model Zoo 的全部 28 个官方示例，包括分类、YOLO 系列、分割、OCR、语音及多模态；每项分别公开专用导出、SDK 后处理和真实验收状态。
-- 页面显式选择芯片厂家；现有 Rockchip→RKNN 与 Sophon→BModel CV 后端均已接入，具体模型能力和板端验收状态以目录为准。Cosmos/Qwen3-VL 使用另行显式确认的实验入口。
+- 页面显式选择芯片厂家；现有 Rockchip→RKNN 与 Sophon→BModel CV 后端均已接入，具体模型能力以目录为准。Cosmos/Qwen3-VL 使用独立的本地目录转换入口。
 - YOLOv5/6/7/8/10/11、YOLOX 和 PP-YOLOE（含 S/M）的专用原始权重导出路由已经登记；只有同时完成结构化后处理和真实验收的架构才允许提交。
 - 用户入口禁止上传 ONNX；上传训练得到的原始权重后，服务必须先调用所选架构的专用仓库 exporter 生成友好 ONNX，再编译 RKNN。
 - INT8/UINT8 支持上传校准图片 ZIP；FP 模式无需校准集。
@@ -17,11 +17,11 @@
 - 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的演示输入；调用方必须显式选择 `YoloV8`、`YoloWorld`、`PPYoloE`、`YAMNet`、`MobileSAM`、`PPOCR`、`CLIP` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。MobileSAM、PPOCR、CLIP、YOLO-World 这类组合模型在一个 `model/` 中携带多个 RKNN 及必要 tokenizer，仍只需安装同一个 SDK。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
 - 原 CV 后端通过 `ConversionBackend` 注册；生成式 VLM 使用独立的官方多图流水线，不复用单图 ONNX 的输入假设。
 
-## Cosmos Reason 2 2B / Qwen3-VL 实验链路
+## Cosmos Reason 2 2B / Qwen3-VL
 
-新增独立 **HF 本地目录 → 官方 TPU-MLIR 1.28.1 多图导出/编译 → BM1684X BModel → 平台 Cosmos SDK** 路径，不替换原有 CV/RKNN 转换。需要完整原始 safetensors、tokenizer/processor 和独立 Python 3.10 编译环境；不接受普通 ONNX 或数 GB 网页上传。尚未完成真实编译/板端验收，须显式确认实验状态。
+提供独立 **HF 本地目录 → 官方 TPU-MLIR 1.28.1 多图导出/编译 → BM1684X BModel → 平台 Cosmos SDK** 路径。需要完整原始 safetensors、tokenizer/processor 和独立 Python 3.10 编译环境。2026-10-23 已完成 Cosmos Reason2-2B 的 W4BF16 转换及 BM1684X 板端文字、图片和四帧视频回放推理。
 
-运行命令、受控目录授权、预检、取消及 SDK 说明见 **[Cosmos 本地转换指南](docs/cosmos_reason2.md)**。模型行会保留“未验收”标记，不会把 mock 测试当成正式可用。
+运行命令、目录授权、预检、取消及 SDK 说明见 **[Cosmos 本地转换指南](docs/cosmos_reason2.md)**。板端网页、JSON API、清华源依赖安装及手动启停源码位于 **[deploy/cosmos_service](deploy/cosmos_service/README.md)**。
 
 ## 在 WSL2 安装
 

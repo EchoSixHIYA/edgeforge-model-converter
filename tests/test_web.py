@@ -74,7 +74,7 @@ def test_frontend_script_has_valid_sophon_health_copy():
     script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
     assert "health.sophon?.ready" in script
     assert "support.weight_formats" in script
-    assert "待板端验收" in script
+    assert "待板端验收" not in script
     assert "querySelectorAll('optgroup')" in script
     assert "SOPHGO 环境就绪" in script
     assert "转换环境组件待安装" in script

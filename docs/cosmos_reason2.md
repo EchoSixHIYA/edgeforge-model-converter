@@ -2,7 +2,7 @@
 
 此入口接入 **NVIDIA Cosmos Reason 2 2B 的 Qwen3-VL 结构**，不是 Qwen-Image 文生图模型，也不是把一个 `[1,3,H,W]` ONNX 交给 CV 后端。
 
-**交付边界：代码集成及无硬件自动测试，不代表真实权重已成功编译、量化质量合格或板端推理已验收。** 目录仍标记 `available=false / verified=false / experimental=true`；用户可显式确认后从独立实验入口运行。原有 YOLO、OCR、CLIP、RKNN 与 CV BModel 路线不变。
+2026-10-23 已完成完整权重到 W4BF16 BModel 的转换，并在 BM1684X 上运行文字、图片和四帧视频回放推理。板端网页与 JSON API 源码、运行版本及测试记录见 [Cosmos 推理服务](../deploy/cosmos_service/README.md)。原有 YOLO、OCR、CLIP、RKNN 与 CV BModel 路线保持不变。
 
 ## 1. 固定官方方案与适配范围
 
@@ -27,7 +27,7 @@ COSMOS_PYTHON=python3.10 bash scripts/setup_cosmos_compiler.sh
 export EDGEFORGE_LLM_PYTHON="$PWD/.venv-cosmos-compiler/bin/python"
 ```
 
-安装器选择 CPU Torch 2.4.0 / torchvision 0.19.0、`tpu_mlir==1.28.1`、`transformers==5.3.0`、`setuptools==75.8.0`。不使用 `tpu_mlir[torch]`（旧 Torch extra 与 Transformers 5.3 的要求冲突），固定 setuptools 保留官方初始化所需的 `pkg_resources`。安装后 `pip check` 与 worker probe 必须通过。**这组环境在本次云执行中未完整安装或实跑模型，真实兼容性仍须本机验证。**
+安装器选择 CPU Torch 2.4.0 / torchvision 0.19.0、`tpu_mlir==1.28.1`、`transformers==5.3.0`、`setuptools==75.8.0`。不使用 `tpu_mlir[torch]`（旧 Torch extra 与 Transformers 5.3 的要求冲突），固定 setuptools 保留官方初始化所需的 `pkg_resources`。这组环境已在本机 Ubuntu-22.04 完成 `pip check`、worker probe 和实际模型转换。
 
 2026-10-23 本机补充：Ubuntu-22.04 的独立编译环境已完成上述固定版本安装，`pip check` 和真实 worker `--probe` 通过；原始 Cosmos 权重目录通过预检。此记录不等同于完整模型编译或板端推理成功。
 
@@ -85,7 +85,7 @@ export EDGEFORGE_DATA_DIR=/tmp/edgeforge-tasks
 .venv/bin/gunicorn --workers 1 --threads 8 --bind 127.0.0.1:5000 app:app
 ```
 
-打开 `http://localhost:5000`，选择 Sophon / Cosmos Reason 2 2B 实验入口，填写**服务所在机器**的绝对模型目录，先预检，再勾选实验风险确认并开始。浏览器文件选择器不是服务器目录授权，不能填另一台电脑的路径。
+打开 `http://localhost:5000`，选择 HF 视觉语言模型，填写**服务所在机器**的绝对模型目录，预检通过后开始转换。填写 WSL / Docker 内部可见的路径。
 
 - 未设置 `EDGEFORGE_MODEL_ROOTS` 时导入禁用；不要设为 `/`。
 - 新 VLM API 只接受 loopback 客户端、localhost/127.0.0.1 Host、同源 Origin；POST 必须带 `X-EdgeForge-Local-Import: 1`。不信任伪造 `X-Forwarded-For`。
@@ -123,6 +123,8 @@ curl -sS http://localhost:5000/api/vlm/preflight \
 官方 Qwen3-VL converter 使用 scalar `max_pixels`；本入口不传无效的 max_shape/frames 参数。静态 ViT 的 5 个输入 shape 与 4 路输出、所需 graph 名称记录在 manifest；完成编译会检查官方 `model_tool --info` 的 graph 名称，实际 tensor shape/板端运行由 SDK 再验证，不能把预期 shape 当实测结果。
 
 **jobs=1 真正控制两个层面：** wrapper 暂时启用官方 `gen_all_mlir()` 的串行分支并恢复原 debug 设置；同时覆盖 `converter.max_workers=1`，使官方 `GNU parallel -j 1` 生效。不仅仅设置 OMP，也不修改已安装官方源码。仍需保留足够单图编译内存。
+
+PPL JIT 内核缓存固定放在当前任务的 `ppl_cache/`（`PPL_CACHE_PATH`），不继承用户全局缓存。官方 1.28.1 会缓存编译失败状态；若缺少 CMake 等工具后再补装，全局缓存可能持续重放旧失败。任务隔离可使新任务重新编译，旧缓存和日志保留用于排障。
 
 **编译主机资源**预检显示：运行 EdgeForge 的电脑当前可用 RAM（含 cgroup 限额）、工作盘余量、权重大小，以及 `max(20 GiB, 权重大小×6)` 的保守工作盘估算。低于该估算或主机可用 RAM <6 GiB 时拒绝启动；这是**编译电脑**的最低拦截阈值，不是板端容量要求，也**不是足够编译的保证或实测峰值**。大序列/视觉塔可能显著增加峰值，需要预留更多资源。日志、临时 MLIR/NPZ、子图 BModel 会留在任务目录用于排障，用户确认后自行清理。
 

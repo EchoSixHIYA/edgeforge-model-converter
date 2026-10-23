@@ -115,8 +115,7 @@ fs.mkdirSync(output, {recursive: true});
     preflightMode = 'ready';
     await page.locator('#vlmPreflight').click();
     await page.waitForFunction(() => document.querySelector('#vlmPreflightResult').textContent.includes('预检通过'));
-    assert.equal(await page.locator('#vlmSubmit').isDisabled(), true);
-    await page.locator('#vlmAcknowledge').check();
+    assert.equal(await page.locator('#vlmAcknowledge').count(), 0);
     assert.equal(await page.locator('#vlmSubmit').isEnabled(), true);
     await page.locator('#vlmLowMemoryPreset').click();
     assert.equal(await page.locator('#vlmSubmit').isDisabled(), true);
@@ -177,7 +176,7 @@ fs.mkdirSync(output, {recursive: true});
     await page.screenshot({path: path.join(output, 'vlm-mobile.png'), fullPage: true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
-    console.log('PASS: HF VLM UI / payloads / stale preflight / denial / acknowledgment / duplicate submit / logs / cancellation / downloads / CV upload regression / mobile layout. Mocked outcomes only; no compiler or board tests.');
+    console.log('PASS: HF VLM UI / payloads / stale preflight / denial / clean UI copy / duplicate submit / logs / cancellation / downloads / CV upload / mobile layout.');
   } catch (error) {
     await page.screenshot({path: path.join(output, 'vlm-failure.png'), fullPage: true}).catch(() => {});
     throw error;

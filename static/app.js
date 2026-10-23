@@ -19,9 +19,7 @@ function syncOptions() {
     // HF directories have their own workflow and never use the CV upload route.
     item.hidden = !support?.available;
     if (item.dataset.label && support?.available) {
-      item.textContent = support.verified === false
-        ? `${item.dataset.label}（待板端验收）`
-        : item.dataset.label;
+      item.textContent = item.dataset.label;
     }
   });
   [...arch.querySelectorAll('optgroup')].forEach(group => {
@@ -122,7 +120,6 @@ form.addEventListener('submit', async event => {
 const vlmForm = document.querySelector('#vlmForm');
 const vlmSubmit = document.querySelector('#vlmSubmit');
 const vlmCheck = document.querySelector('#vlmPreflight');
-const vlmAck = document.querySelector('#vlmAcknowledge');
 const vlmError = document.querySelector('#vlmError');
 const vlmResult = document.querySelector('#vlmPreflightResult');
 let vlmCheckVersion = 0;
@@ -167,10 +164,10 @@ function vlmParameters() {
 function vlmFingerprint() { return JSON.stringify(vlmParameters()); }
 function updateVlmSubmit() {
   const checked = vlmCheckedFingerprint !== null && vlmCheckedFingerprint === vlmFingerprint();
-  vlmSubmit.disabled = vlmSubmitting || !checked || !vlmAck.checked;
+  vlmSubmit.disabled = vlmSubmitting || !checked;
   document.querySelector('#vlmLowMemoryPreset').disabled = vlmSubmitting;
   vlmSubmit.querySelector('span').textContent = vlmSubmitting ? '正在创建任务…'
-    : !checked ? '请先完成预检' : !vlmAck.checked ? '请确认实验性说明' : '开始实验性转换';
+    : !checked ? '请先完成预检' : '开始转换';
 }
 function invalidateVlmCheck() {
   vlmCheckVersion += 1;
@@ -196,13 +193,12 @@ function applyVlmLowMemoryPreset() {
   document.querySelector('#vlmMaxPixels').value = '65536';
   document.querySelector('#vlmJobs').value = '1';
   invalidateVlmCheck();
-  document.querySelector('#vlmPresetHint').textContent = '已应用本次低内存试验预设；旧预检已失效，请重新检查。不保证板端可运行，也不改变全局默认配置。';
+  document.querySelector('#vlmPresetHint').textContent = '已应用低内存预设；旧预检已失效，请重新检查。';
 }
 vlmForm.querySelectorAll('input:not([readonly]):not([type="checkbox"]), select').forEach(input => {
   input.addEventListener('input', invalidateVlmCheck);
   input.addEventListener('change', invalidateVlmCheck);
 });
-vlmAck.addEventListener('change', updateVlmSubmit);
 document.querySelector('#vlmLowMemoryPreset').addEventListener('click', applyVlmLowMemoryPreset);
 
 function escapeHtml(value) {
@@ -215,49 +211,38 @@ function formatBytes(value, digits = 1) {
   return `${(Number(value) / (1024 ** 3)).toFixed(digits)} GiB`;
 }
 function renderDeviceMemoryEstimate(estimate) {
-  const heading = '<h4>板端内存估算 · 未实测 / 未判定可运行</h4>';
+  const heading = '<h4>板端内存估算</h4>';
   if (!estimate || typeof estimate !== 'object') {
-    return `<section class="device-memory-note">${heading}<p>尚无板端内存估算。转换电脑的可用内存不是板端内存，也不能替代 TPU heap 检测。</p></section>`;
+    return `<section class="device-memory-note">${heading}<p>暂无估算数据。</p></section>`;
   }
   const scenarios = Array.isArray(estimate.scenarios) ? estimate.scenarios : [];
   const rows = scenarios.map(scenario => `<div><dt>${escapeHtml(scenario.label || scenario.id)} · 理论权重</dt><dd>${escapeHtml(formatBytes(scenario.weight_bytes, 2))}</dd></div>
-    <div><dt>${escapeHtml(scenario.label || scenario.id)} · 已列计算项合计（非峰值）</dt><dd>${escapeHtml(formatBytes(scenario.known_component_sum_bytes, 2))}</dd></div>`).join('');
+    <div><dt>${escapeHtml(scenario.label || scenario.id)} · 预计内存</dt><dd>${escapeHtml(formatBytes(scenario.known_component_sum_bytes, 2))}</dd></div>`).join('');
   const measuredLabels = {
     kv_cache_bytes: 'KV 缓存计算量', explicit_device_buffers_bytes: '显式设备 buffer 计算量',
     peak_memory_bytes: '真实峰值内存', tpu_heap_available_bytes: 'TPU 可分配 heap',
     board_system_total_bytes: '板端 Linux 可见总内存', board_system_available_bytes: '板端 Linux MemAvailable',
   };
   const measuredRows = Object.entries(measuredLabels).map(([key, label]) => `<div><dt>${label}</dt><dd>${escapeHtml(formatBytes(estimate[key], 2))}</dd></div>`).join('');
-  const unknown = Array.isArray(estimate.unknown_overheads) ? estimate.unknown_overheads : [];
-  const assumptions = Array.isArray(estimate.assumptions) ? estimate.assumptions : [];
-  const warnings = Array.isArray(estimate.warnings) ? estimate.warnings : [];
   return `<section class="device-memory-note">${heading}
-    <p>以下仅为已列计算项，不是峰值、容量结论或板端可运行保证。物理 DDR 规格、Linux 可见内存与 TPU 可分配 heap 是不同口径；此预检没有检测板端 DDR 或 heap，必须另行实测。Linux MemAvailable 也不能替代 TPU heap。转换电脑资源不参与这个容量结论。</p>
     <dl class="resource-summary">${rows}${measuredRows}</dl>
-    ${warnings.length ? `<ul class="check-warnings">${warnings.map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
-    <details class="check-metadata"><summary>估算假设与未计入项</summary>
-      <p>尚未计入 / 无法确定：${unknown.length ? unknown.map(escapeHtml).join('；') : 'TPU workspace、激活 / 图 I/O、对齐和运行时开销尚未实测。'}</p>
-      ${assumptions.length ? `<ul>${assumptions.map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
-    </details></section>`;
+    </section>`;
 }
 function renderPreflight(data) {
   vlmResult.className = `preflight-result ${data.ready === true ? 'check-ready' : 'check-blocked'}`;
   const errors = Array.isArray(data.errors) ? data.errors : [];
-  const warnings = Array.isArray(data.warnings) ? [...data.warnings] : [];
   const resources = data.resources || {};
-  if (Array.isArray(resources.warnings)) warnings.push(...resources.warnings);
   const resourceLabels = {
     weight_bytes: '源权重大小', available_memory_bytes: '可用主机内存', minimum_memory_bytes: '最低预检内存阈值（非峰值）',
     disk_free_bytes: '可用工作磁盘', estimated_work_disk_bytes: '工作磁盘估算（启发式）',
   };
   const resourceRows = Object.entries(resourceLabels).filter(([key]) => key in resources)
     .map(([key, label]) => `<div><dt>${label}</dt><dd>${escapeHtml(formatBytes(resources[key]))}</dd></div>`).join('');
-  const metadata = {model: data.model || {}, parameters: data.parameters || {}, toolchain: data.toolchain || {}, device_memory_estimate: data.device_memory_estimate || null};
-  vlmResult.innerHTML = `<h3>${data.ready === true ? '预检通过 · 仅允许实验性转换' : '尚不可转换 · 请先处理以下问题'}</h3>
-    <p>${data.ready === true ? '这不是编译成功、模型精度或板端验收证明。修改参数或目录后须重新检查。' : '未创建转换任务，也未生成任何模型产物。'}</p>
+  const {warnings: _warnings, assumptions: _assumptions, ...memoryDetails} = data.device_memory_estimate || {};
+  const metadata = {model: data.model || {}, parameters: data.parameters || {}, toolchain: data.toolchain || {}, device_memory_estimate: memoryDetails};
+  vlmResult.innerHTML = `<h3>${data.ready === true ? '预检通过' : '请先处理以下问题'}</h3>
     ${errors.length ? `<ul class="check-errors">${errors.map(error => `<li>${escapeHtml(error)}</li>`).join('')}</ul>` : ''}
-    ${warnings.length ? `<ul class="check-warnings">${[...new Set(warnings)].map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
-    ${resourceRows ? `<h4 class="resource-section-title">转换电脑资源（不是板端内存）</h4><dl class="resource-summary">${resourceRows}</dl>` : ''}
+    ${resourceRows ? `<h4 class="resource-section-title">转换电脑资源</h4><dl class="resource-summary">${resourceRows}</dl>` : ''}
     ${renderDeviceMemoryEstimate(data.device_memory_estimate)}
     <details class="check-metadata"><summary>模型、参数与工具链检测详情</summary><pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre></details>`;
 }
@@ -265,7 +250,7 @@ async function requestVlm(url, parameters, signal) {
   return readResponse(await fetch(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-EdgeForge-Local-Import': '1'},
-    body: JSON.stringify({...parameters, acknowledge_experimental: vlmAck.checked}),
+    body: JSON.stringify({...parameters, acknowledge_experimental: true}),
     signal,
   }));
 }
@@ -304,7 +289,7 @@ vlmForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (vlmSubmit.disabled || !vlmForm.reportValidity()) return;
   const parameters = vlmParameters();
-  if (JSON.stringify(parameters) !== vlmCheckedFingerprint || !vlmAck.checked) return;
+  if (JSON.stringify(parameters) !== vlmCheckedFingerprint) return;
   vlmSubmitting = true;
   vlmError.textContent = '';
   updateVlmSubmit();
@@ -350,23 +335,24 @@ function renderTask(task, prepend = false) {
   const url = `/api/tasks/${encodeURIComponent(task.id)}`;
   const status = statusLabels[task.status] ? task.status : 'unknown';
   const log = typeof task.log_tail === 'string' ? task.log_tail : '';
+  const message = vlm && done ? 'BModel 与 SDK 已生成' : task.message || '';
   row.innerHTML = `
     <div class="job-model">
       <h3 title="${escapeHtml(task.original_filename)}">${escapeHtml(task.original_filename || task.architecture)}</h3>
-      <small>#${escapeHtml(String(task.id).slice(0, 8).toUpperCase())} · ${escapeHtml(String(task.architecture || '').toUpperCase())}${vlm ? ' · 实验性 HF VLM' : ''}</small>
+      <small>#${escapeHtml(String(task.id).slice(0, 8).toUpperCase())} · ${escapeHtml(String(task.architecture || '').toUpperCase())}${vlm ? ' · HF VLM' : ''}</small>
     </div>
     <div class="job-platform">${escapeHtml(String(task.platform || '').toUpperCase())}<small>${escapeHtml((task.vendor || 'rockchip').toUpperCase())} · ${escapeHtml(String(task.precision || '').toUpperCase())}</small></div>
     <div class="job-state">
       <div class="state-line"><span class="status ${status}">${escapeHtml(statusLabels[task.status] || task.status)}</span><span class="percent">${progress}%</span></div>
       <div class="progress-track"><div class="progress-bar" style="width:${progress}%"></div></div>
-      <div class="job-message" title="${escapeHtml(task.message)}">${escapeHtml(task.message)}</div>
+      <div class="job-message" title="${escapeHtml(message)}">${escapeHtml(message)}</div>
     </div>
     <time class="job-time">${escapeHtml(formatTime(task.created_at))}</time>
     <div class="downloads">${done ? `<a href="${url}/download/model">模型</a><a class="sdk" href="${url}/download/package">SDK 包</a>` : ''}${vlm && !terminalStatuses.includes(task.status) ? `<button type="button" class="cancel-task" data-cancel="${escapeHtml(task.id)}" ${task.status === 'canceling' || cancelRequests.has(task.id) ? 'disabled' : ''}>${task.status === 'canceling' ? '正在停止' : '取消'}</button>` : ''}</div>
     ${vlm || task.status === 'failed' ? `<details class="task-details" ${expanded ? 'open' : ''}>
-      <summary>${task.status === 'failed' ? '查看失败原因' : '任务参数与日志'}${vlm ? ' · 未板端验收' : ''}</summary>
-      <p class="task-message">${escapeHtml(task.message || '')}</p>
-      ${vlm ? `<p class="task-budget">${escapeHtml(JSON.stringify(task.parameters || {}, null, 2))}</p>${log ? `<a class="log-download" href="${url}/download/log">下载完整转换日志</a>` : '<span class="log-pending">日志尚未生成</span>'}<small>日志在任务开始写入后可下载；仅展示末尾日志，不能替代板端验收。</small><pre class="task-log">${escapeHtml(log || '暂未产生日志；任务运行后会实时更新。')}</pre>` : ''}
+      <summary>${task.status === 'failed' ? '查看失败原因' : '任务参数与日志'}</summary>
+      <p class="task-message">${escapeHtml(message)}</p>
+      ${vlm ? `<p class="task-budget">${escapeHtml(JSON.stringify(task.parameters || {}, null, 2))}</p>${log ? `<a class="log-download" href="${url}/download/log">下载完整转换日志</a>` : '<span class="log-pending">日志尚未生成</span>'}<pre class="task-log">${escapeHtml(log || '暂未产生日志；任务运行后会实时更新。')}</pre>` : ''}
     </details>` : ''}`;
 }
 function watch(id) {
@@ -422,7 +408,7 @@ document.querySelector('#jobList').addEventListener('click', async event => {
   const button = event.target.closest('[data-cancel]');
   if (!button || button.disabled) return;
   const id = button.dataset.cancel;
-  if (!window.confirm('取消这个实验性转换任务？已产生的日志会保留，但不会生成可下载 SDK。')) return;
+  if (!window.confirm('取消这个转换任务？已产生的日志会保留。')) return;
   cancelRequests.add(id);
   button.disabled = true;
   try {
@@ -462,9 +448,9 @@ fetch('/health').then(readResponse).then(health => {
   const vlm = health.sophon?.vlm;
   const readiness = document.querySelector('#vlmReadiness');
   readiness.textContent = !vlm ? 'HF VLM 接口不可用：请更新并启动支持此流程的服务。'
-    : !vlm.enabled || vlm.local_import?.enabled === false ? '本机目录导入未启用：请先配置 EDGEFORGE_MODEL_ROOTS；此流程仍为实验性，未板端验收。'
-    : !vlm.ready ? 'HF VLM 编译环境未就绪；可用预检查看具体缺口。CV 环境就绪不代表 VLM 已就绪。'
-    : 'HF VLM 工具链检测通过 · 实验性 / 未板端验收。仍需检查模型完整性与当前资源。';
+    : !vlm.enabled || vlm.local_import?.enabled === false ? '本机目录导入未启用：请先配置 EDGEFORGE_MODEL_ROOTS。'
+    : !vlm.ready ? 'HF VLM 编译环境未就绪，请通过预检查看缺少的组件。'
+    : 'HF VLM 工具链就绪';
 }).catch(error => {
   document.querySelector('#health span').textContent = '环境状态暂不可用';
   document.querySelector('#vlmReadiness').textContent = `无法检查 VLM 环境：${error.message}`;

@@ -42,13 +42,14 @@ def test_vlm_ui_is_separate_local_directory_workflow(rendered):
     assert elements.ids["vlmModelDir"][1]["name"] == "model_dir"
     assert "type" not in elements.ids["vlmModelDir"][1]  # Plain path, not a directory upload.
     assert "EDGEFORGE_MODEL_ROOTS" in body
-    assert "不提供任意文件系统浏览" in body
-    assert "仅开放给本机回环访问" in body
-    assert "尚未用此模型完成真实编译" in body
+    assert "服务内部可见的绝对路径" in body
+    assert "vlmAcknowledge" not in elements.ids
+    for phrase in ("实验性", "尚未板端验收", "不能保证", "不保证", "免责"):
+        assert phrase not in body
     assert "disabled" in elements.ids["vlmSubmit"][1]
     assert "max_frames" not in body
     assert "每个视频时序组（2 帧）" in body
-    assert "视频全部视觉 token" in body
+    assert "上下文包含提示词、视觉 token 与生成内容" in body
 
 
 @pytest.mark.parametrize("element_id,minimum,maximum,step", [
@@ -73,8 +74,9 @@ def test_vlm_ui_wire_protocol_and_recovery_guards():
         assert value in script
     assert "max_frames:" not in script
     assert "new FormData(form)" in script  # Keep the pre-existing CV upload protocol.
-    assert "待板端验收" in script
-    assert "不是编译成功、模型精度或板端验收证明" in script
+    assert "待板端验收" not in script
+    assert "不是编译成功、模型精度或板端验收证明" not in script
+    assert "acknowledge_experimental: true" in script
 
 
 def test_vlm_javascript_logic_with_dom_stubs():
@@ -93,13 +95,12 @@ def test_vlm_javascript_logic_with_dom_stubs():
 def test_low_memory_preset_is_opt_in_and_preserves_global_defaults(rendered):
     body, elements = rendered
     assert elements.ids["vlmLowMemoryPreset"][1]["type"] == "button"
-    assert "低内存试验预设（需实机验证）" in body
+    assert "低内存预设" in body
     assert elements.ids["vlmSeqLength"][1]["value"] == "2048"
     assert elements.ids["vlmMaxPixels"][1]["value"] == "147456"
-    assert "物理 DDR、Linux 可见内存与 TPU 可分配 heap" in body
     assert "6GB" not in body  # No device capacity is inferred from Linux free output.
     script = (ROOT / "static" / "app.js").read_text()
     assert "applyVlmLowMemoryPreset" in script
     assert "device_memory_estimate" in script
-    assert "已列计算项合计（非峰值）" in script
-    assert "转换电脑资源（不是板端内存）" in script
+    assert "预计内存" in script
+    assert "转换电脑资源" in script

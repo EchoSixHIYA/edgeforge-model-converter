@@ -178,6 +178,10 @@ void Qwen3_VL::net_launch(const bm_net_info_t *net,
                                    net->input_num, out_tensors.data(),
                                    net->output_num, true, false);
   assert(ret);
+  // BMRT launch is asynchronous. In particular, older SoC runtimes require
+  // an explicit fence before CPU sampling or dependent device copies.
+  if (bm_thread_sync(bm_handle) != BM_SUCCESS)
+    throw std::runtime_error("TPU network synchronization failed");
 }
 
 void Qwen3_VL::net_launch_decode(int idx, int kv_offset,

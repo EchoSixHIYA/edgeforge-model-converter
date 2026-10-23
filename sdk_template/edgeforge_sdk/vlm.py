@@ -363,7 +363,9 @@ class Qwen3VL:
         messages.append({"role": "user", "content": content})
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         try:
-            inputs = self.processor(text=[text], return_tensors="np", **kwargs)
+            # HF 4.57.1 fast image/video processors only emit PyTorch tensors.
+            # Convert at the existing _numpy boundary before calling native BMRT.
+            inputs = self.processor(text=[text], return_tensors="pt", **kwargs)
         finally:
             self.processor._edgeforge_frame_times = None
         ids = _numpy(inputs["input_ids"], np.int32)

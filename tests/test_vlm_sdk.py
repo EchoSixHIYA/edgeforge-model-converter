@@ -81,6 +81,7 @@ class FakeProcessor:
         return "formatted"
 
     def __call__(self, **kwargs):
+        assert kwargs["return_tensors"] == "pt"  # Real fast processors reject np.
         self.calls.append(kwargs)
         return self.output or {"input_ids": np.array([self.ids])}
 
@@ -445,3 +446,22 @@ def test_required_shape_validation_precedes_native_reads():
     assert '{patches / 4, 2048}, "ViT/DeepStack output"' in body
     assert 'shape(net_lm->stages[0].output_shapes[0], {1, 151936}' in body
     assert 'catch (...) { deinit(); throw; }' in body
+
+
+def test_async_native_launch_is_fenced_before_dependent_reads():
+    body = (ROOT / "sdk_template/runtime/qwen3_vl/chat.cpp").read_text()
+    launch = body.split("void Qwen3_VL::net_launch(", 1)[1].split("void Qwen3_VL::net_launch_decode", 1)[0]
+    assert launch.index("bmrt_launch_tensor_ex") < launch.index("bm_thread_sync(bm_handle)")
+
+
+def test_processor_tensors_are_converted_at_native_boundary(runtime):
+    model, _, processor = runtime
+    class Tensor:
+        def detach(self): return self
+        def cpu(self): return self
+        def numpy(self): return np.array([[1, 2, 3]], dtype=np.int64)
+    processor.output = {"input_ids": Tensor()}
+    prepared = model.preprocess("hello")
+    assert processor.calls[-1]["return_tensors"] == "pt"
+    assert prepared.input_ids.dtype == np.int32
+    assert prepared.input_ids.flags.c_contiguous

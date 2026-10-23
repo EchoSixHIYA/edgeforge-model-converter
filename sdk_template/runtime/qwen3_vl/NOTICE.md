@@ -19,6 +19,8 @@ EdgeForge modifications to native runtime:
 - Graph/profile and exact static input/output shape/dtype checks before tensor access;
   batch-one Cosmos-Reason2-2B profile. Native initialization failures clean up resources.
 - Fresh-call KV reset and exposed model dimensions for manifest verification.
+- Explicit BMRT completion fence after each asynchronous network launch, before
+  dependent copies or CPU logits sampling (including older SoC runtimes).
 - Prefill, decode, device KV movement, all four ViT outputs and three DeepStack
   additions retain the pinned Sophgo implementation.
 - CMake/build.sh adapt the official BMRT/bmlib + pybind11 build for an active venv.
@@ -28,6 +30,8 @@ mRoPE algorithm. It uses the source HF processor, not the demo's 1 FPS/resolutio
 constants, and preserves source indices/FPS and decoded presentation timestamps.
 HF processing remains in the separately installed transformers dependency under
 its upstream Apache-2.0 license; no HF implementation is vendored here.
+The HF 4.57.1 fast processors emit PyTorch tensors; the SDK explicitly converts
+them to contiguous NumPy arrays at the native execution boundary.
 
 Not validated here: building against a real libsophon SDK, real model compilation,
 real device inference or numerical parity against the source model. Host tests

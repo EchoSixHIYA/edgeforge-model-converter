@@ -31,7 +31,7 @@ const document = {
   },
 };
 const context = vm.createContext({document, AbortController, Math, Number, String, JSON, Set, Map,
-  vlmSubmit: {disabled: true, querySelector: () => label}, vlmSubmitting: false, vlmAck: {checked: false},
+  vlmSubmit: {disabled: true, querySelector: () => label}, vlmSubmitting: false,
   vlmCheckedFingerprint: null, vlmCheckVersion: 1, vlmController: null,
   vlmCheck: {disabled: false, textContent: ''}, vlmError: {textContent: ''},
   vlmResult: {className: '', classList: classList(), innerHTML: '', textContent: ''},
@@ -58,11 +58,8 @@ context.updateVlmSubmit();
 assert.equal(context.vlmSubmit.disabled, true);
 context.vlmCheckedFingerprint = context.vlmFingerprint();
 context.updateVlmSubmit();
-assert.equal(context.vlmSubmit.disabled, true);
-assert.equal(label.textContent, '请确认实验性说明');
-context.vlmAck.checked = true;
-context.updateVlmSubmit();
 assert.equal(context.vlmSubmit.disabled, false);
+assert.equal(label.textContent, '开始转换');
 context.vlmSubmitting = true;
 context.updateVlmSubmit();
 assert.equal(context.vlmSubmit.disabled, true);
@@ -104,23 +101,29 @@ const memoryHtml = context.renderDeviceMemoryEstimate({status: 'analytical_not_m
   board_system_available_bytes: null, kv_cache_bytes: 0.1 * 1024 ** 3, explicit_device_buffers_bytes: 0.025 * 1024 ** 3,
   scenarios: [{id: 'shared', label: '共享 embedding / lm_head', weight_bytes: 2 * 1024 ** 3,
     known_component_sum_bytes: 2.125 * 1024 ** 3}], unknown_overheads: ['TPU workspace', malicious], assumptions: ['分析值，不是板测'], warnings: [malicious]});
-assert.match(memoryHtml, /已列计算项合计（非峰值）/);
+assert.match(memoryHtml, /预计内存/);
 assert.match(memoryHtml, /2.13 GiB/);
 assert.match(memoryHtml, /TPU 可分配 heap/);
 assert.match(memoryHtml, /板端 Linux MemAvailable/);
 assert.match(memoryHtml, /未知/);
-assert.match(memoryHtml, /未判定可运行/);
+assert.ok(!memoryHtml.includes('未判定可运行'));
 assert.ok(!memoryHtml.includes('<img'));
 assert.ok(!memoryHtml.includes('check-ready'));
-assert.match(context.renderDeviceMemoryEstimate(null), /尚无板端内存估算/);
+assert.match(context.renderDeviceMemoryEstimate(null), /暂无估算数据/);
 
 
 context.renderPreflight({ready: false, errors: [malicious], warnings: ['not board verified'],
   model: {name: malicious}, resources: {available_memory_bytes: 16 * 1024 ** 3}, parameters: context.vlmParameters()});
-assert.match(context.vlmResult.innerHTML, /尚不可转换/);
+assert.match(context.vlmResult.innerHTML, /请先处理以下问题/);
 assert.match(context.vlmResult.innerHTML, /16.0 GiB/);
 assert.ok(!context.vlmResult.innerHTML.includes('<img'));
 assert.ok(context.vlmResult.innerHTML.includes('&lt;img'));
+assert.ok(!context.vlmResult.innerHTML.includes('not board verified'));
+context.renderPreflight({ready: true, warnings: ['不代表板端验收'], device_memory_estimate: {
+  warnings: ['内存不保证可运行'], assumptions: ['尚未实测'], scenarios: []}});
+assert.match(context.vlmResult.innerHTML, /预检通过/);
+assert.ok(!context.vlmResult.innerHTML.includes('不代表板端验收'));
+assert.ok(!context.vlmResult.innerHTML.includes('内存不保证可运行'));
 const task = {id: 'example', input_kind: 'hf_directory', architecture: 'cosmos_reason2_2b',
   original_filename: malicious, platform: 'bm1684x', vendor: 'sophon', precision: 'w4bf16',
   created_at: '2026-10-22T00:00:00Z', status: 'failed', message: malicious, log_tail: '<script>alert(1)</script>', progress: -10};
@@ -159,5 +162,5 @@ assert.equal(nodes['#jobList'].rows.length, 1);  // Updates replace, not duplica
   assert.equal('max_frames' in body, false);
   await assert.rejects(context.readResponse({ok: false, status: 403, json: async () => ({error: 'loopback only'})}), /loopback only/);
   await assert.rejects(context.readResponse({ok: false, status: 502, json: async () => {throw new Error('HTML response');}}), /HTTP 502/);
-  console.log('PASS: VLM JS units (DOM stubs): parameter wiring, opt-in low-memory preset, separate unmeasured device-memory display, current-preflight+consent gate, edit invalidation+abort, resource output, XSS quotes/tags, task states/log/package controls, HTTP errors. No browser render/compiler/board exercised.');
+  console.log('PASS: VLM JS units: parameter wiring, low-memory preset, preflight gate, clean UI copy, edit invalidation, resources, XSS escaping, tasks, downloads and HTTP errors.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

@@ -149,7 +149,7 @@ class Pipeline:
         shutil.copy2(packaged_manifest, manifest_path)
         if (work / "cancel.requested").exists():
             raise ConversionCanceled("转换已取消；未发布部分产物")
-        update(100, "BModel 与实验 SDK 已生成；仍需 BM1684X 板端验收")
+        update(100, "BModel 与 SDK 已生成")
         return {"model": str(output), "package": str(package), "manifest": str(manifest_path)}
 
     def _prepare_calibration(self, archive, work, update):

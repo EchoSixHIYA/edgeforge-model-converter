@@ -66,10 +66,18 @@ class VlmBModelBackend:
         environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", CUDA_VISIBLE_DEVICES="",
                            OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1",
                            TOKENIZERS_PARALLELISM="false", PYTHONUNBUFFERED="1")
+        # Official PPL JIT caches failures as well as compiled kernels. A global
+        # cache can replay an old missing-build-tool failure after tools are
+        # installed. Keep each task independent, including inherited overrides.
+        ppl_cache = work / "ppl_cache"
+        ppl_cache.mkdir()
+        environment["PPL_CACHE_PATH"] = str(ppl_cache)
         environment["PATH"] = str(Path(toolchain["python"]).parent) + os.pathsep + environment.get("PATH", "")
         update(20, "调用官方 TPU-MLIR 1.28.1 Qwen3-VL 导出/编译（jobs=1）")
         process = None
         with (work / "conversion.log").open("w", encoding="utf-8") as log:
+            log.write(f"PPL JIT task-local cache: {ppl_cache}\n")
+            log.flush()
             try:
                 process = subprocess.Popen(command, cwd=work, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                            start_new_session=True)
@@ -122,7 +130,7 @@ class VlmBModelBackend:
         manifest["graph_contract"]["model_tool_names_checked"] = True
         manifest["graph_contract"]["actual_shapes_checked"] = False
         manifest["artifact_bytes"] = output.stat().st_size
-        update(88, "已生成 combined BModel 并核验 graph 名称；尚未上板验证")
+        update(88, "已生成 combined BModel 并核验 graph 名称")
         return output
 
     @staticmethod
