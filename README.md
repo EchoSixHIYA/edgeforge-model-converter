@@ -1,90 +1,293 @@
-# EdgeForge 模型转换服务器
+<a id="readme-top"></a>
 
-后续接入其他模型仓库前，请先阅读 [模型仓库接入指南](转换接入文档/MODEL_REPOSITORY_INTEGRATION.md)。SDK 调用方请阅读 [SDK API 说明](转换接入文档/SDK_API.md)。
+<div align="center">
+  <h1>EdgeForge</h1>
+  <p><strong>从训练权重到边缘部署，转换模型，也交付调用它的 SDK。</strong></p>
+  <p>A self-hosted model conversion workbench for Rockchip RKNN and Sophon BModel.</p>
+  <p>
+    <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/actions/workflows/lightweight-ci.yml"><img src="https://github.com/EchoSixHIYA/edgeforge-model-converter/actions/workflows/lightweight-ci.yml/badge.svg?branch=main" alt="Lightweight CI — main" /></a>
+    <img src="https://img.shields.io/badge/Rockchip-RKNN-0f766e?style=flat-square" alt="Rockchip RKNN" />
+    <img src="https://img.shields.io/badge/Sophon-BModel-0f766e?style=flat-square" alt="Sophon BModel" />
+    <a href="./sdk_template/SDK_README.md"><img src="https://img.shields.io/badge/Python_SDK-2.2.0-0f766e?style=flat-square" alt="Python SDK 2.2.0" /></a>
+  </p>
+  <p>
+    <a href="#quick-start">快速部署</a> · <a href="#models">模型与精度</a> · <a href="#sdk">SDK 使用</a> · <a href="#api">API</a> · <a href="#documentation">文档</a> · <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/issues">反馈</a>
+  </p>
+</div>
 
-本机开发与 PR 验证使用 `dev` 分支，启动和测试方法见 [dev 开发指南](docs/development.md)。
+## 关于 EdgeForge · Overview
 
-部署在 WSL2 Ubuntu 的 Flask 服务。宿主机浏览器上传训练模型后，服务按架构完成 RKNN 友好 ONNX、RKNN 构建，并把对应 RKNN Model Zoo 官方 Python/C++ 示例与模型一起封装为 SDK。
+EdgeForge 把模型导出、芯片编译和部署 SDK 放进同一个网页工作台。选择芯片厂家、目标芯片和模型架构，上传训练得到的 `.pt`、`.pth` 等原始权重，服务会调用对应架构的专用导出器，生成厂商友好的 ONNX，再编译为 RKNN 或 BModel。
 
-## 当前能力
+下载的不只是模型文件：每个成功任务都包含模型配置、Python SDK、安装脚本、使用示例与官方参考代码。部署端选择对应的模型类，就能完成预处理、推理、后处理和结果绘制。
 
-- 工作台目录覆盖仓库内固定版 RKNN Model Zoo 的全部 28 个官方示例，包括分类、YOLO 系列、分割、OCR、语音及多模态；每项分别公开专用导出、SDK 后处理和真实验收状态。
-- 页面显式选择芯片厂家；现有 Rockchip→RKNN 与 Sophon→BModel CV 后端均已接入，具体模型能力以目录为准。Cosmos/Qwen3-VL 使用独立的本地目录转换入口。
-- YOLOv5/6/7/8/10/11、YOLOX 和 PP-YOLOE（含 S/M）的专用原始权重导出路由已经登记；只有同时完成结构化后处理和真实验收的架构才允许提交。
-- 用户入口禁止上传 ONNX；上传训练得到的原始权重后，服务必须先调用所选架构的专用仓库 exporter 生成友好 ONNX，再编译 RKNN。
-- INT8/UINT8 支持上传校准图片 ZIP；FP 模式无需校准集。
-- Server-Sent Events 实时显示进度；任务和日志持久化；转换任务串行排队。
-- 每次成功转换强制生成同一套可安装的 `edgeforge-model-sdk`：内嵌 RKNN、模型标签和可直接运行的演示输入；调用方必须显式选择 `YoloV8`、`YoloWorld`、`PPYoloE`、`YAMNet`、`MobileSAM`、`PPOCR`、`CLIP` 等模型类，再使用统一的 `load/predict/preprocess/infer_raw/postprocess/draw` 接口。MobileSAM、PPOCR、CLIP、YOLO-World 这类组合模型在一个 `model/` 中携带多个 RKNN 及必要 tokenizer，仍只需安装同一个 SDK。官方 Python/C++ 示例保留在 `reference/`，不再作为主调用方案。
-- 原 CV 后端通过 `ConversionBackend` 注册；生成式 VLM 使用独立的官方多图流水线，不复用单图 ONNX 的输入假设。
-
-## Cosmos Reason 2 2B / Qwen3-VL
-
-提供独立 **HF 本地目录 → 官方 TPU-MLIR 1.28.1 多图导出/编译 → BM1684X BModel → 平台 Cosmos SDK** 路径。需要完整原始 safetensors、tokenizer/processor 和独立 Python 3.10 编译环境。2026-10-23 已完成 Cosmos Reason2-2B 的 W4BF16 转换及 BM1684X 板端文字、图片和四帧视频回放推理。
-
-运行命令、目录授权、预检、取消及 SDK 说明见 **[Cosmos 本地转换指南](docs/cosmos_reason2.md)**。板端网页、JSON API、清华源依赖安装及手动启停源码位于 **[deploy/cosmos_service](deploy/cosmos_service/README.md)**。
-
-## 在 WSL2 安装
-
-Ubuntu 20.04 的 Python 3.8 与许多 RKNN-Toolkit2 官方 wheel 匹配。先从 [RKNN-Toolkit2 官方仓库](https://github.com/airockchip/rknn-toolkit2) 选择与 Python 3.8 / x86_64 匹配的 wheel，放到本目录 `wheels/`。然后在 PowerShell 执行：
-
-```powershell
-wsl -d Ubuntu-20.04 -- bash -lc "cd '/mnt/e/边缘部署/模型转换服务器' && bash scripts/setup_wsl.sh"
+```text
+原始训练权重 → 架构专用导出器 → 友好 ONNX → RKNN / BModel → 模型 + Python SDK
 ```
 
-安装脚本会同时安装 CPU 版 PyTorch、各 Rockchip YOLO 导出分支、PP-YOLOE/PP-LiteSeg 共用的 Paddle 2.5.2 环境，以及 YAMNet/DeepLabV3+ 共用的 TensorFlow 2.13.1 环境。两个隔离环境分别位于 `/home/<用户>/.edgeforge-ppyoloe-export-venv` 和 `/home/<用户>/.edgeforge-yamnet-export-venv`，只负责上游源模型导出，不会污染主服务环境。
+| 能力 · Capability | 说明 · Highlights |
+| --- | --- |
+| ◇ 多厂家转换 | Rockchip → RKNN，Sophon → BModel；按厂家展示可用架构、芯片和精度 |
+| ↔ 自定义输入 | 支持的 YOLO 链路可设置宽高，方形和矩形均可；尺寸贯穿导出、编译与 SDK |
+| ⚙ 浮点与 INT8 | 默认优先浮点；INT8 手动选择，自动使用内置校准样本，无需上传校准集 |
+| ↻ 实时任务 | 串行转换、阶段进度、任务历史与模型 / SDK 下载 |
+| 🧩 统一 SDK | 显式架构类，统一 `load / predict / preprocess / infer_raw / postprocess / draw` 接口 |
+| 🖼 视觉语言模型 | Cosmos Reason 2 2B 使用独立的本地 HF 目录 → BM1684X 转换链路 |
 
-## 启动并从宿主机访问
+<a id="quick-start"></a>
 
-```powershell
-wsl -d Ubuntu-20.04 -- bash -lc "cd '/mnt/e/边缘部署/模型转换服务器' && bash scripts/start_wsl.sh"
+## 快速部署 · Quick start
+
+推荐在 **WSL2 Ubuntu 22.04 / Linux x86_64 + Python 3.10** 中运行转换服务，在目标板上运行生成的 SDK。
+
+### 启动已有环境
+
+在项目目录中运行：
+
+```bash
+bash scripts/start_dev_wsl.sh
 ```
 
-打开 <http://localhost:5000>。服务监听 `0.0.0.0`，WSL2 的 localhost 转发开启时宿主机可直接访问。健康检查为 <http://localhost:5000/health>。
+打开 **[http://localhost:5000](http://localhost:5000)**。Windows 宿主机可通过 WSL 的 localhost 转发访问工作台；环境检查为 [`/health`](http://localhost:5000/health)。
 
-生产环境可将 `scripts/start_wsl.sh` 配为 systemd 服务。必须保持 Gunicorn `workers=1`，任务队列当前位于进程内；线程用于网页、进度流和下载，不会并发执行 RKNN 编译。
+当前 Windows 项目目录的 PowerShell 启动示例：
 
-## 转换约束
+```powershell
+wsl -d Ubuntu-22.04 -- bash -lc "cd '/mnt/e/边缘部署/模型转换服务器' && bash scripts/start_dev_wsl.sh"
+```
 
-RKNN Model Zoo 的“支持模型”表示官方提供了友好 ONNX 与部署示例，不等于任意同名训练权重已经具备自动导出链路。工作台会完整展示 28 个官方示例以及每项的具体缺口，但只允许提交满足“专用 exporter、结构化 SDK 后处理、真实验收”三项条件的模型。当前目录中标记为“可转换”的模型均已完成原始权重、RKNN 构建和统一 SDK 闭环；未完成项仍显示具体 blocker 并拒绝提交。多输入或多模型架构还需要设计一次任务上传多个权重及配套 tokenizer/词表的协议。
+前台启动时按 `Ctrl+C` 停止服务。项目不自动注册开机自启，也不会在启动时提交转换任务。
 
-量化校准图片应接近真实部署数据分布。上传的 ZIP 会安全解压到任务私有目录并生成绝对路径 `dataset.txt`。
+<details>
+<summary>首次安装 · First-time setup</summary>
 
-## API
+在 WSL / Ubuntu 中准备 Python 虚拟环境和构建工具：
 
-- `GET /health`：环境组件状态
-- `GET /api/catalog`：模型、后端和平台目录
-- `POST /api/tasks`：multipart 表单，字段 `vendor/architecture/platform/precision/model/calibration`；后端由厂家自动选择
-- `GET /api/tasks/:id/events`：SSE 实时进度
-- `GET /api/tasks/:id/download/model`：模型产物
-- `GET /api/tasks/:id/download/package`：完整 SDK
+```bash
+sudo apt update
+sudo apt install -y git python3.10-venv python3-pip build-essential cmake parallel
 
-## 添加其他厂商后端
+git clone https://github.com/EchoSixHIYA/edgeforge-model-converter.git
+cd edgeforge-model-converter
+mkdir -p wheels
+```
 
-在 `server/backends/` 实现 `ConversionBackend`，声明输出后缀并在 `Pipeline.__init__` 注册即可。任务、SSE、产物下载和 SDK 清单均与 RKNN 解耦；前端会通过 `/api/catalog` 逐步改为动态展示新后端。
+从 [RKNN-Toolkit2 官方仓库](https://github.com/airockchip/rknn-toolkit2) 获取与 **Linux x86_64 / CPython 3.10** 匹配的 wheel，放入 `wheels/`，然后执行：
 
-## SOPHGO BM1684X
+```bash
+bash scripts/setup_wsl.sh
+```
 
-SOPHGO/BModel 链路独立于 RKNN 主安装脚本。进入官方 TPU-MLIR 环境后运行：
+脚本安装主服务依赖，并准备模型专用仓库、CPU PyTorch 和独立的 Paddle / TensorFlow 等导出环境。Rockchip 路径当前使用 RKNN-Toolkit2 **2.3.2**。
+
+需要算能 CV 转换时，再安装独立 TPU-MLIR 环境：
 
 ```bash
 bash scripts/setup_sophon.sh
 ```
 
-脚本会准备 `vendor/sophon-demo` 并检查 `model_transform.py`、`model_deploy.py`、`sophon.sail` 是否可用；已有官方仓库时可用 `SOPHON_DEMO=/path/to/sophon-demo bash scripts/setup_sophon.sh`。
+该脚本安装 TPU-MLIR **1.28.1** 并准备 `vendor/sophon-demo`。转换机不需要连接板卡；部署端运行 BModel 时才需要 SOPHON-SAIL。
 
-BModel 转换包可用固定 smoke 命令验收：
+Cosmos 的编译依赖单独安装，见 [Cosmos 本地转换指南](./docs/cosmos_reason2.md)。
 
-```bash
-python scripts/smoke_bmodel.py path/to/sdk.zip
-python scripts/smoke_bmodel.py path/to/sdk.zip --require-bmrt
+</details>
+
+### 完成第一次转换
+
+1. 选择 **芯片厂家 → 目标芯片 → 模型架构**。
+2. 上传该架构训练得到的原始权重，不需要提前导出 ONNX。
+3. 设置输入尺寸和精度，点击 **开始转换**。
+4. 在任务历史中查看进度，完成后下载 **模型** 或 **SDK 包**。
+5. 把 SDK 解压到对应目标板，执行 `bash install.sh` 和示例程序。
+
+转换任务按队列串行执行，网页、进度与下载可同时访问。
+
+<a id="models"></a>
+
+## 模型与精度 · Models & precision
+
+### 模型目录
+
+| 类型 | 已接入的模型系列 |
+| --- | --- |
+| 目标检测 | YOLOv5 / v6 / v7 / v8 / v9 / v10 / YOLO11 / v12、YOLOX、PP-YOLOE |
+| 分割与姿态 | YOLOv5 Seg、YOLOv8 Seg / Pose / OBB、YOLOv9 Seg、YOLO11 OBB、PP-LiteSeg、DeepLabV3+、MobileSAM |
+| 分类、OCR 与人脸 | MobileNet V2、ResNet-50、YOLOv8 Cls、LPRNet、PP-OCRv4、RetinaFace |
+| 音频与图文 | YAMNet、CLIP、YOLO-World V2 |
+| 视觉语言生成 | Cosmos Reason 2 2B / Qwen3-VL → BM1684X |
+
+各厂家的可用模型并不完全相同。工作台按当前选择筛选；机器可读的架构、权重格式、芯片和精度清单位于 **[`GET /api/catalog`](http://localhost:5000/api/catalog)**。
+
+### 精度选择
+
+| 目标平台 | 工作台精度 | 默认选择 |
+| --- | --- | --- |
+| Rockchip | 浮点 `fp`，适用芯片上的 INT8 `i8` | 浮点 |
+| Sophon BM1684 | FP32 `f32`、适用架构的 INT8 `i8` | FP32 |
+| Sophon BM1684X | FP32 `f32`、FP16 `f16`、适用架构的 INT8 `i8` | FP32 |
+
+切换模型或芯片后，工作台会重新优先选择浮点。**INT8 始终由用户手动选择**，服务器自动使用 RKNN Model Zoo 内置的 **20 张 COCO 图片**进行校准。需要文本、提示点或音频等额外输入的模型，不套用这份图像校准清单。
+
+### 输入尺寸
+
+支持自定义尺寸的 YOLO 架构可以分别填写宽、高，例如 **640 × 384** 或 **1920 × 1088**；两者均须为 **32 的倍数**。
+
+这是模型张量尺寸，不是原图的尺寸限制。SDK 可以接收 `1920 × 1080` 等原始图像，自动缩放、补边，并把结果映射回原图。转换后会检查 ONNX 的实际输入形状，与请求不一致时在编译前报出差异。
+
+SDK 配置中的 `input_size` 顺序是 `[宽, 高]`，ONNX 输入为 `[1, 3, 高, 宽]`。更改输入尺寸时重新转换并替换模型包即可。
+
+<a id="sdk"></a>
+
+## 下载即用的 SDK · Model SDK
+
+CV 转换包的主要内容：
+
+```text
+sdk.zip
+├─ edgeforge_sdk/      Python SDK 本体
+├─ model/              RKNN / BModel、config.json 和中间 ONNX
+├─ example.py          直接调用 SDK 的使用示例
+├─ install.sh          虚拟环境与依赖安装
+├─ SDK_README.md       安装、接口和返回值说明
+├─ pyproject.toml      SDK 安装定义
+├─ manifest.json       架构、芯片、精度和构建信息
+└─ reference/          官方参考实现
 ```
 
-## 测试
+在目标板解压后运行：
 
 ```bash
-/home/$(id -un)/.edgeforge-model-converter-venv/bin/python -m pytest -q -ra
+bash install.sh
+.venv/bin/python example.py
 ```
 
-硬件无关测试依赖可在独立 venv 中用 `pip install -r requirements-test.txt` 安装，再运行 `python -m pytest -q -ra`；不需要 Torch、RKNN-Toolkit2 或 TPU-MLIR。真实转换仍需要对应官方工具链。
+若当前已激活虚拟环境，安装脚本会使用当前环境；否则在 SDK 目录创建 `.venv`。RKNN 包附带 RKNN-Toolkit-Lite2 的 aarch64 wheel；BModel 包使用板端已安装的 SOPHON-SAIL。
 
-轻量 GitHub Actions、跳过项解释、Windows 换行修复及真实验收边界见 **[测试与验收说明](docs/testing.md)**。CI 通过不等于真实模型编译或上板通过。
+业务代码也可以直接调用：
+
+```python
+from edgeforge_sdk import YoloV8
+
+with YoloV8("model") as model:
+    detections = model.predict("test.jpg", confidence=0.25, iou=0.45)
+    print([item.as_dict() for item in detections])
+    model.draw("test.jpg", detections, "result.jpg")
+```
+
+安装 SDK 后，后续可单独替换 `model/`。不同架构使用对应的显式类，例如 `Yolo11`、`LPRNet`、`PPOCR` 或 `YAMNet`；`reference/` 不参与主调用流程。
+
+完整说明：[SDK 使用指南](./sdk_template/SDK_README.md) · [SDK API](./转换接入文档/SDK_API.md)。
+
+## HF 多模态转换 · Vision-language models
+
+Cosmos Reason 2 2B 使用独立的 **本地 HF 目录 → TPU-MLIR 多图编译 → BM1684X BModel → Cosmos SDK** 路径，不走普通图像模型的单 ONNX 转换。
+
+在 **HF 视觉语言模型** 标签页中填写服务可见的模型目录，预检通过后开始转换。完整原始 safetensors、tokenizer 和 processor 保留在本机，无需通过浏览器上传大权重。
+
+- 使用 `EDGEFORGE_MODEL_ROOTS` 指定允许导入的模型根目录。
+- 使用 `EDGEFORGE_LLM_PYTHON` 指定独立的 Python 3.10 编译环境。
+- 支持上下文、视觉预算和量化精度设置；目录导入和任务操作限本机访问。
+- 板端图片、文字、视频网页推理服务位于 [`deploy/cosmos_service`](./deploy/cosmos_service/README.md)，手动启动，不注册开机自启。
+
+安装、参数与完整调用示例见 [Cosmos 本地转换指南](./docs/cosmos_reason2.md)。
+
+<a id="api"></a>
+
+## API
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /health` | 检查转换工具链 |
+| `GET /api/catalog` | 查询厂家、模型、芯片和精度 |
+| `POST /api/tasks` | 上传原始权重并创建转换任务 |
+| `GET /api/tasks` | 查询任务历史 |
+| `GET /api/tasks/:id` | 查询单个任务 |
+| `GET /api/tasks/:id/events` | SSE 阶段进度 |
+| `GET /api/tasks/:id/download/model` | 下载模型 |
+| `GET /api/tasks/:id/download/package` | 下载完整 SDK |
+
+例如，在有 `best.pt` 的目录中创建一个 BM1684 FP32 任务：
+
+```bash
+curl -sS http://localhost:5000/api/tasks \
+  -F "vendor=sophon" -F "architecture=yolov8" \
+  -F "platform=bm1684" -F "precision=f32" \
+  -F "input_width=1920" -F "input_height=1088" \
+  -F "model=@best.pt"
+```
+
+返回 HTTP `202` 和任务 `id`，随后通过任务状态或 SSE 查询进度。厂商后端由 `vendor` 自动选择，不需要单独传入。
+
+HF 模型使用独立的 `/api/vlm/preflight`、`/api/vlm/tasks` 和本地请求头，详见 [VLM JSON API](./docs/cosmos_reason2.md#json-api)。
+
+## 数据与配置 · Configuration
+
+`scripts/start_dev_wsl.sh` 会读取本机 `data/dev.env`。这是被 Git 忽略的本地配置，使用 Bash 的 `export 名称=值` 语法。
+
+| 配置项 | 用途 |
+| --- | --- |
+| `PORT` | Web 端口，默认 `5000` |
+| `VENV_DIR` | Web / RKNN 虚拟环境 |
+| `SOPHON_VENV` | TPU-MLIR CV 编译环境 |
+| `EDGEFORGE_DATA_DIR` | 任务、上传权重与转换产物目录 |
+| `EDGEFORGE_MODEL_ROOTS` | HF 本地导入的模型根目录 |
+| `EDGEFORGE_LLM_PYTHON` | Cosmos 独立编译环境的 Python |
+
+默认任务目录为 `/home/<用户>/.edgeforge-model-converter-dev/tasks`。SDK 中的芯片型号必须与部署板一致。服务按本机或可信局域网使用，不直接暴露公网；Gunicorn 保持 **1 个 worker**，避免多个进程各自维护任务队列。
+
+<a id="documentation"></a>
+
+## 文档 · Documentation
+
+| 我想要…… | 入口 |
+| --- | --- |
+| 调用生成的模型包 | [SDK 使用指南](./sdk_template/SDK_README.md) · [SDK API](./转换接入文档/SDK_API.md) |
+| 接入新的模型仓库 | [模型仓库接入指南](./转换接入文档/MODEL_REPOSITORY_INTEGRATION.md) |
+| 了解算能转换链路 | [SOPHGO 接入说明](./转换接入文档/SOPHGO_BM1684X.md) |
+| 转换 Cosmos 多模态模型 | [Cosmos 本地转换指南](./docs/cosmos_reason2.md) |
+| 部署 Cosmos 板端网页 / API | [Cosmos 推理服务](./deploy/cosmos_service/README.md) |
+| 运行测试与检查 | [测试与验收说明](./docs/testing.md) |
+
+<details>
+<summary>开发与扩展 · Development</summary>
+
+```text
+server/catalog.py       厂家、架构、芯片与精度目录
+server/exporters.py     原始权重 → 厂商友好 ONNX
+server/backends/        RKNN / BModel 编译后端
+server/pipeline.py      导出、校验、编译与 SDK 打包
+server/tasks.py         串行队列与任务持久化
+sdk_template/          下载 SDK 的模板与运行代码
+templates/ + static/    网页工作台
+```
+
+新增厂商在 `server/backends/` 实现 `ConversionBackend` 并注册；新增模型按接入指南补齐专用导出器、元数据和 SDK 后处理。
+
+轻量测试不需要板卡或完整编译器：
+
+```bash
+python3.10 -m venv .venv-test
+.venv-test/bin/python -m pip install -r requirements-test.txt
+.venv-test/bin/python -m pytest -q -ra
+```
+
+有 Node.js 时可单独检查前端逻辑：
+
+```bash
+node tests/ui/cv_precision_unit.cjs
+node tests/ui/vlm_dom_unit.cjs
+```
+
+</details>
+
+## 上游项目 · Upstream
+
+- [RKNN Model Zoo](https://github.com/airockchip/rknn_model_zoo)：模型目录、部署示例与内置 COCO 样本。
+- [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2)：Rockchip 模型编译与运行工具。
+- [Sophon Demo](https://github.com/sophgo/sophon-demo)：算能模型示例、导出和编译参考。
+- [TPU-MLIR](https://github.com/sophgo/tpu-mlir)：BModel 编译与量化工具链。
+- [LLM-TPU](https://github.com/sophgo/LLM-TPU)：Qwen3-VL 等多模态模型的运行参考。
+
+第三方模型、编译器和运行库保留各自的许可与使用条件。
+
+<p align="right"><a href="#readme-top">返回顶部 · Back to top ↑</a></p>
