@@ -331,7 +331,7 @@ node tests/ui/vlm_dom_unit.cjs
 
 ## 社区 · Community
 
-[GitHub Issues](https://github.com/EchoSixHIYA/edgeforge-model-converter/issues) · [QQ 群 · QQ group `869500475`](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=yhumUMDD9PmyYFWdXWUb_x7hM5trFQY8&authKey=Pw3HBGT7GwMinTQnuFGfnpf0aRSzXOJKcAiujVP1%2BXMpjheAKrncTRivicBJxpjV&noverify=0&group_code=869500475) · [Telegram](https://t.me/+8qShpTcuN9A3MWY9)
+[GitHub Issues](https://github.com/EchoSixHIYA/edgeforge-model-converter/issues) · [QQ 群 · QQ group `869500475`](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=yhumUMDD9PmyYFWdXWUb_x7hM5trFQY8&authKey=Pw3HBGT7GwMinTQnuFGfnpf0aRSzXOJKcAiujVP1%2BXMpjheAKrncTRivicBJxpjV&noverify=0&group_code=869500475)
 
 <p align="center"><a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&amp;k=yhumUMDD9PmyYFWdXWUb_x7hM5trFQY8&amp;authKey=Pw3HBGT7GwMinTQnuFGfnpf0aRSzXOJKcAiujVP1%2BXMpjheAKrncTRivicBJxpjV&amp;noverify=0&amp;group_code=869500475"><img src="./docs/assets/community-qq-qr.jpg" alt="QQ 交流群 869500475 二维码" width="260" /></a></p>
 
