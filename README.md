@@ -13,7 +13,7 @@
     <a href="./LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-0f766e?style=flat-square" alt="License: AGPL-3.0" /></a>
   </p>
   <p>
-    <a href="#screenshots">实机截图</a> · <a href="#quick-start">快速部署</a> · <a href="#models">模型与精度</a> · <a href="#sdk">SDK 使用</a> · <a href="#api">API</a> · <a href="#documentation">文档</a> · <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/issues">反馈</a>
+    <a href="#screenshots">实机截图</a> · <a href="#quick-start">快速部署</a> · <a href="#models">模型与精度</a> · <a href="#sdk">SDK 使用</a> · <a href="#api">API</a> · <a href="#documentation">文档</a> · <a href="#community">社区</a> · <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/issues">反馈</a>
   </p>
 </div>
 
@@ -326,6 +326,14 @@ node tests/ui/vlm_dom_unit.cjs
 - [LLM-TPU](https://github.com/sophgo/LLM-TPU)：Qwen3-VL 等多模态模型的运行参考。
 
 第三方模型、编译器和运行库保留各自的许可与使用条件。
+
+<a id="community"></a>
+
+## 社区 · Community
+
+[GitHub Issues](https://github.com/EchoSixHIYA/edgeforge-model-converter/issues) · [QQ 群 · QQ group `869500475`](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=yhumUMDD9PmyYFWdXWUb_x7hM5trFQY8&authKey=Pw3HBGT7GwMinTQnuFGfnpf0aRSzXOJKcAiujVP1%2BXMpjheAKrncTRivicBJxpjV&noverify=0&group_code=869500475) · [Telegram](https://t.me/+8qShpTcuN9A3MWY9)
+
+<p align="center"><a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&amp;k=yhumUMDD9PmyYFWdXWUb_x7hM5trFQY8&amp;authKey=Pw3HBGT7GwMinTQnuFGfnpf0aRSzXOJKcAiujVP1%2BXMpjheAKrncTRivicBJxpjV&amp;noverify=0&amp;group_code=869500475"><img src="./docs/assets/community-qq-qr.jpg" alt="QQ 交流群 869500475 二维码" width="260" /></a></p>
 
 ## 许可证 · License
 
