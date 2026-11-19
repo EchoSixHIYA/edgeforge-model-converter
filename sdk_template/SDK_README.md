@@ -1,5 +1,7 @@
 # EdgeForge 通用模型 SDK
 
+本 SDK 自有代码使用 [GNU AGPL v3.0（AGPL-3.0-only）](./LICENSE)。第三方模型、参考代码和运行库仍遵循各自的许可证。
+
 `edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个或一组 `.rknn` / `.bmodel` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
 
 图像模型的 `config.json` 记录转换时使用的 `input_size: [宽, 高]`。`predict()` 会自动把原图预处理为该尺寸；调用方无需手动缩放。需要改变模型输入尺寸时，请重新转换并替换整个 `model/`，不要单独修改配置文件。

@@ -1,6 +1,7 @@
 <a id="readme-top"></a>
 
 <div align="center">
+  <p><img src="./docs/assets/edgeforge-banner.png" alt="EdgeForge — One of ILLUSIA’s Creations" width="100%" /></p>
   <h1>EdgeForge</h1>
   <p><strong>从训练权重到边缘部署，转换模型，也交付调用它的 SDK。</strong></p>
   <p>A self-hosted model conversion workbench for Rockchip RKNN and Sophon BModel.</p>
@@ -9,9 +10,10 @@
     <img src="https://img.shields.io/badge/Rockchip-RKNN-0f766e?style=flat-square" alt="Rockchip RKNN" />
     <img src="https://img.shields.io/badge/Sophon-BModel-0f766e?style=flat-square" alt="Sophon BModel" />
     <a href="./sdk_template/SDK_README.md"><img src="https://img.shields.io/badge/Python_SDK-2.2.0-0f766e?style=flat-square" alt="Python SDK 2.2.0" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-0f766e?style=flat-square" alt="License: AGPL-3.0" /></a>
   </p>
   <p>
-    <a href="#quick-start">快速部署</a> · <a href="#models">模型与精度</a> · <a href="#sdk">SDK 使用</a> · <a href="#api">API</a> · <a href="#documentation">文档</a> · <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/issues">反馈</a>
+    <a href="#screenshots">实机截图</a> · <a href="#quick-start">快速部署</a> · <a href="#models">模型与精度</a> · <a href="#sdk">SDK 使用</a> · <a href="#api">API</a> · <a href="#documentation">文档</a> · <a href="https://github.com/EchoSixHIYA/edgeforge-model-converter/issues">反馈</a>
   </p>
 </div>
 
@@ -33,6 +35,41 @@ EdgeForge 把模型导出、芯片编译和部署 SDK 放进同一个网页工�
 | ↻ 实时任务 | 串行转换、阶段进度、任务历史与模型 / SDK 下载 |
 | 🧩 统一 SDK | 显式架构类，统一 `load / predict / preprocess / infer_raw / postprocess / draw` 接口 |
 | 🖼 视觉语言模型 | Cosmos Reason 2 2B 使用独立的本地 HF 目录 → BM1684X 转换链路 |
+
+<a id="screenshots"></a>
+
+## 实机截图 · Screenshots
+
+以下截图来自本机 WSL2 中实际运行的转换工作台。
+
+### Rockchip · RKNN
+
+选择 RK3588、YOLOv8 和浮点精度，输入尺寸可设为 `1920 × 1088`。
+
+![Rockchip RK3588 模型转换配置与自定义输入尺寸](./docs/assets/workbench-rknn.png)
+
+<details>
+<summary>查看更多：算能转换、多模态模型与历史产物</summary>
+
+### Sophon · BModel
+
+BM1684 的 FP32 转换配置，同样支持自定义模型输入尺寸。
+
+![Sophon BM1684 FP32 模型转换配置](./docs/assets/workbench-sophon.png)
+
+### HF 视觉语言模型
+
+Cosmos Reason 2 的本地目录导入、编译预算与环境检查入口。
+
+![Cosmos Reason 2 多模态模型转换界面](./docs/assets/workbench-vlm.png)
+
+### 转换历史与 SDK 下载
+
+已有任务的实际状态、转换进度和模型 / SDK 下载入口。
+
+![实际转换任务历史与模型和 SDK 下载入口](./docs/assets/conversion-history.png)
+
+</details>
 
 <a id="quick-start"></a>
 
@@ -289,5 +326,9 @@ node tests/ui/vlm_dom_unit.cjs
 - [LLM-TPU](https://github.com/sophgo/LLM-TPU)：Qwen3-VL 等多模态模型的运行参考。
 
 第三方模型、编译器和运行库保留各自的许可与使用条件。
+
+## 许可证 · License
+
+EdgeForge 自有代码及 SDK 使用 [GNU Affero General Public License v3.0（AGPL-3.0-only）](./LICENSE)。下载 SDK 时随包附带许可证；第三方模型、官方参考代码、编译器及运行库仍遵循各自的许可证。
 
 <p align="right"><a href="#readme-top">返回顶部 · Back to top ↑</a></p>
