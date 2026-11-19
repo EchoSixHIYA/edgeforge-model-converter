@@ -4,12 +4,31 @@ const arch = document.querySelector('#architecture');
 const platform = document.querySelector('#platform');
 const precision = document.querySelector('#precision');
 const modelFile = document.querySelector('#modelFile');
-const calibration = document.querySelector('#calibrationFile');
 const errorBox = document.querySelector('#formError');
+const inputSizeFields = document.querySelector('#inputSizeFields');
+const inputWidth = document.querySelector('#inputWidth');
+const inputHeight = document.querySelector('#inputHeight');
+const inputShape = document.querySelector('#inputShape');
+const inputSizeHelp = document.querySelector('#inputSizeHelp');
+let inputSizeKey = '';
+let precisionKey = '';
 const watchers = new Map();
 const taskRows = new Map();
 const cancelRequests = new Set();
 const terminalStatuses = ['completed', 'failed', 'canceled'];
+
+function showInputShape(size) {
+  inputShape.value = size?.length === 2 ? `1, 3, ${size[1]}, ${size[0]}` : size?.join(', ') || '—';
+}
+
+function previewInputShape() {
+  showInputShape(inputWidth.value && inputHeight.value ? [inputWidth.value, inputHeight.value] : null);
+}
+
+function choosePrecision(allowed, current, contextChanged) {
+  if (!contextChanged && allowed.includes(current)) return current;
+  return ['fp', 'f32', 'f16', 'bf16'].find(value => allowed.includes(value)) || '';
+}
 
 function syncOptions() {
   const selectedVendor = vendor.value;
@@ -36,31 +55,45 @@ function syncOptions() {
   const support = vendorSupport[selectedVendor] || {};
   const allowed = support.platforms || JSON.parse(option.dataset.platforms || '[]');
   const formats = support.weight_formats || JSON.parse(option.dataset.formats || '[]');
-  const size = support.input_size || JSON.parse(option.dataset.size || '[640,640]');
-  const precisions = support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
+  const size = support.input_size || JSON.parse(option.dataset.size || 'null');
+  const canResize = support.custom_input_size;
+  const sizeKey = `${selectedVendor}:${option.value}`;
   [...platform.options].forEach(item => item.hidden = !allowed.includes(item.value));
   if (!allowed.includes(platform.value)) platform.value = allowed[0];
+  const precisions = support.platform_precisions?.[platform.value] || support.precisions || JSON.parse(option.dataset.precisions || '["fp"]');
+  const precisionContext = `${sizeKey}:${platform.value}`;
   [...precision.options].forEach(item => item.hidden = !precisions.includes(item.value));
-  if (!precisions.includes(precision.value)) precision.value = precisions[0];
+  precision.value = choosePrecision(precisions, precision.value, precisionContext !== precisionKey);
+  precisionKey = precisionContext;
   modelFile.accept = formats.join(',');
   document.querySelector('#sourceHint').textContent =
     `接受原始权重 ${formats.join(' / ').toUpperCase()}，友好 ONNX 由架构专用导出器在服务内部生成`;
-  document.querySelector('#inputShape').value = `1, 3, ${size[1] || size[0]}, ${size[0]}`;
-  document.querySelector('#calibrationBox').classList.toggle('hidden', !['i8', 'u8'].includes(precision.value));
+  inputSizeFields.classList.toggle('hidden', !canResize);
+  for (const [index, input] of [inputWidth, inputHeight].entries()) {
+    input.disabled = !canResize;
+    if (canResize && sizeKey !== inputSizeKey) input.value = size[index];
+  }
+  inputSizeKey = sizeKey;
+  if (canResize) {
+    inputSizeHelp.textContent = `默认 ${size.join(' × ')}；宽和高都须为 ${inputWidth.step} 的倍数。`;
+    previewInputShape();
+  } else {
+    inputSizeHelp.textContent = '当前架构使用固定输入尺寸。';
+    showInputShape(size);
+  }
 }
 
 vendor.addEventListener('change', syncOptions);
 arch.addEventListener('change', syncOptions);
-precision.addEventListener('change', syncOptions);
+platform.addEventListener('change', syncOptions);
+inputWidth.addEventListener('input', previewInputShape);
+inputHeight.addEventListener('input', previewInputShape);
 syncOptions();
 
 function showModelName() {
   document.querySelector('#modelLabel').textContent = modelFile.files[0]?.name || '拖入原始模型权重';
 }
 modelFile.addEventListener('change', showModelName);
-calibration.addEventListener('change', () => {
-  document.querySelector('#calibrationName').textContent = calibration.files[0]?.name || '';
-});
 const drop = document.querySelector('#modelDrop');
 ['dragenter', 'dragover'].forEach(name => drop.addEventListener(name, event => {
   event.preventDefault();
@@ -95,10 +128,6 @@ form.addEventListener('submit', async event => {
   const button = document.querySelector('#submitButton');
   if (button.disabled) return;
   errorBox.textContent = '';
-  if (['i8', 'u8'].includes(precision.value) && !calibration.files.length) {
-    errorBox.textContent = 'INT8 / UINT8 转换必须上传量化校准图片 ZIP。';
-    return;
-  }
   button.disabled = true;
   button.querySelector('span').textContent = '正在上传权重...';
   try {
@@ -106,9 +135,10 @@ form.addEventListener('submit', async event => {
     renderTask(data, true);
     if (!terminalStatuses.includes(data.status)) watch(data.id);
     form.reset();
+    inputSizeKey = '';
+    precisionKey = '';
     syncOptions();
     showModelName();
-    document.querySelector('#calibrationName').textContent = '';
     document.querySelector('#jobs').scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) { errorBox.textContent = error.message; }
   finally {
@@ -336,10 +366,11 @@ function renderTask(task, prepend = false) {
   const status = statusLabels[task.status] ? task.status : 'unknown';
   const log = typeof task.log_tail === 'string' ? task.log_tail : '';
   const message = vlm && done ? 'BModel 与 SDK 已生成' : task.message || '';
+  const resolution = Array.isArray(task.input_size) && task.input_size.length === 2 ? ` · ${escapeHtml(task.input_size.join(' × '))}` : '';
   row.innerHTML = `
     <div class="job-model">
       <h3 title="${escapeHtml(task.original_filename)}">${escapeHtml(task.original_filename || task.architecture)}</h3>
-      <small>#${escapeHtml(String(task.id).slice(0, 8).toUpperCase())} · ${escapeHtml(String(task.architecture || '').toUpperCase())}${vlm ? ' · HF VLM' : ''}</small>
+      <small>#${escapeHtml(String(task.id).slice(0, 8).toUpperCase())} · ${escapeHtml(String(task.architecture || '').toUpperCase())}${vlm ? ' · HF VLM' : ''}${resolution}</small>
     </div>
     <div class="job-platform">${escapeHtml(String(task.platform || '').toUpperCase())}<small>${escapeHtml((task.vendor || 'rockchip').toUpperCase())} · ${escapeHtml(String(task.precision || '').toUpperCase())}</small></div>
     <div class="job-state">

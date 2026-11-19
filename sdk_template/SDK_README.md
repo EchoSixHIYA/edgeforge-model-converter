@@ -2,6 +2,8 @@
 
 `edgeforge_sdk` 只需安装一次。以后从任意转换包复制 `model/` 目录（其中包含一个或一组 `.rknn` / `.bmodel` 和 `config.json`），传给对应的显式模型类，无需再次安装。SDK 不提供自动识别入口；`reference/` 仅用于核对上游官方实现。
 
+图像模型的 `config.json` 记录转换时使用的 `input_size: [宽, 高]`。`predict()` 会自动把原图预处理为该尺寸；调用方无需手动缩放。需要改变模型输入尺寸时，请重新转换并替换整个 `model/`，不要单独修改配置文件。
+
 ```python
 from edgeforge_sdk import YoloV10
 
@@ -21,6 +23,8 @@ bash install.sh
 ```
 
 如果已经激活虚拟环境，`install.sh` 会直接安装到当前环境；否则会在 SDK 根目录自动创建 `.venv`。也可用 `EDGEFORGE_VENV=/指定路径 bash install.sh` 指定环境目录。安装器会校验 wheel、按 Python 版本自动选择文件，并安装 SDK 的 NumPy、OpenCV 等依赖。
+
+如果部署环境已安装旧版 SDK，请用新转换包重新执行 `bash install.sh`，以更新矩形输入和 Sophon YOLO 的处理逻辑。
 
 随包 wheel 只负责 Python 侧 RKNNLite，并且只有包内存在 `.rknn` 时才会安装。板卡固件中的 `librknnrt.so` 和 NPU 驱动仍由系统提供，安装脚本不会替换系统库；若模型编译器与板端运行库版本不同，运行时会给出兼容性警告。
 
@@ -111,6 +115,8 @@ with MobileSAM("model") as model:
 ## `infer_raw()`
 
 `infer_raw(inputs) -> list[numpy.ndarray]` 只运行 NPU，不进行预处理和后处理。单输入可直接传数组；多输入须按模型节点顺序传列表。返回数组的数量、顺序、布局和数据类型与编译模型一致，可能是 NCHW/NHWC 或量化整数。
+
+YOLOv5/v7/v8/v10/11 及 YOLOv8 Seg、Pose、OBB 的 BModel 包，`preprocess()` 会直接返回归一化的 NCHW `float32`，无需再次转置或归一化。RKNN 包仍返回带 batch 维的 NHWC `uint8`。
 
 ```python
 tensor, context = model.preprocess("test.jpg")

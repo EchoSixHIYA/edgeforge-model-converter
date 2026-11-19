@@ -12,7 +12,9 @@ from .backends.base import BackendRegistry
 from .backends.bmodel import BModelBackend
 from .backends.rknn import RknnBackend
 from .catalog import BY_ID
+from .calibration import prepare_builtin_calibration
 from .exporters import ArchitectureExporters
+from .input_sizes import resolve_input_size
 from .sophon_models import sophon_model
 
 
@@ -69,18 +71,25 @@ class Pipeline:
             raise ValueError(f"{cfg['name']} does not support vendor {task['vendor']}")
         if task["platform"] not in support["platforms"]:
             raise ValueError(f"{cfg['name']} 不支持目标平台 {task['platform']}")
+        allowed_precisions = support.get("platform_precisions", {}).get(task["platform"], support["precisions"])
+        if task["precision"] not in allowed_precisions:
+            raise ValueError(f"{cfg['name']} 在当前转换流程中不支持精度 {task['precision']}")
         effective_cfg = dict(cfg)
-        if support.get("input_size"):
-            effective_cfg["input_size"] = support["input_size"]
+        effective_cfg["input_size"] = resolve_input_size(cfg, task["vendor"], task.get("input_size"))
         sophon_cfg = sophon_model(cfg["id"]) if task["vendor"] == "sophon" else None
         if sophon_cfg and sophon_cfg.get("sequence_length"):
             effective_cfg["sequence_length"] = sophon_cfg["sequence_length"]
 
-        dataset = self._prepare_calibration(task.get("calibration_path"), work, update)
-        onnx_artifacts = self._to_onnx(source, work, task, update)
+        dataset = None
+        if task["precision"] == "i8":
+            dataset, sample_count = prepare_builtin_calibration(self.model_zoo, work)
+            effective_cfg["calibration"] = {"source": "RKNN Model Zoo COCO subset", "images": sample_count}
+            update(15, f"使用内置 COCO 校准集（{sample_count} 张）")
+        export_size = effective_cfg["input_size"] if support.get("custom_input_size") else None
+        onnx_artifacts = self._to_onnx(source, work, task, update, input_size=export_size)
         onnx_models = onnx_artifacts if isinstance(onnx_artifacts, dict) else {"model": onnx_artifacts}
         for path in onnx_models.values():
-            self._check_onnx(path, update)
+            self._check_onnx(path, update, input_size=export_size)
 
         backend = self.backends.get(task["backend"])
         outputs = {}
@@ -88,11 +97,11 @@ class Pipeline:
             output = work / f"{component}{backend.output_suffix}"
             options = {
                 "platform": task["platform"], "precision": task["precision"],
-                "dataset": str(dataset) if dataset else None, "catalog": effective_cfg,
+                "catalog": effective_cfg,
                 "component": component,
             }
-            if dataset:
-                options["calibration_dir"] = str(work / "calibration")
+            if dataset is not None:
+                options.update(dataset=str(dataset), calibration_list=str(dataset), calibration_input_num=sample_count)
             if cfg["id"] == "mobilesam" and component == "decoder":
                 options["fuse_normalization"] = False
             if cfg["id"] == "ppocr" and component in {"cls", "rec"}:
@@ -101,9 +110,6 @@ class Pipeline:
                 options["fuse_normalization"] = False
             if cfg["id"] == "yolo_world":
                 options["fuse_normalization"] = False
-                if (task["vendor"] == "sophon" and component == "detector" and
-                        str(task["precision"]).lower() in {"i8", "int8"}):
-                    options["quantize_table"] = str(self._yolo_world_quantize_table())
             backend.convert(onnx_path, output, options, update)
             outputs[component] = output
         update(91, "组装对应架构的部署 SDK")
@@ -152,59 +158,45 @@ class Pipeline:
         update(100, "BModel 与 SDK 已生成")
         return {"model": str(output), "package": str(package), "manifest": str(manifest_path)}
 
-    def _prepare_calibration(self, archive, work, update):
-        if not archive:
-            return None
-        update(15, "解压并检查量化校准集")
-        dest = work / "calibration"
-        dest.mkdir(exist_ok=True)
-        with zipfile.ZipFile(archive) as zf:
-            for info in zf.infolist():
-                target = (dest / info.filename).resolve()
-                if dest.resolve() not in target.parents and target != dest.resolve():
-                    raise ValueError("校准 ZIP 包含不安全路径")
-                if not info.is_dir():
-                    zf.extract(info, dest)
-        images = sorted(p for p in dest.rglob("*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"})
-        if not images:
-            raise ValueError("校准 ZIP 中没有可用图片")
-        dataset = work / "dataset.txt"
-        dataset.write_text("\n".join(str(p.resolve()) for p in images), encoding="utf-8")
-        return dataset
-
-    def _to_onnx(self, source, work, task, update):
+    def _to_onnx(self, source, work, task, update, *, input_size=None):
         if source.suffix.lower() == ".onnx" and task.get("internal_test_onnx"):
             output = work / "model.onnx"
             shutil.copy2(source, output)
             update(28, "使用内部测试 ONNX")
             return output
         if self.exporters.supports(task["architecture"], source.suffix, task["vendor"]):
-            return self.exporters.export(source, work, task["architecture"], task["vendor"], update)
+            return self.exporters.export(source, work, task["architecture"], task["vendor"], update,
+                                         input_size=input_size)
         raise ValueError(f"{task['architecture']} 未注册原始权重 {source.suffix} 的专用导出器")
 
-    def _check_onnx(self, path, update):
+    def _check_onnx(self, path, update, *, input_size=None):
         update(38, "校验 ONNX 模型结构")
         try:
             import onnx
             model = onnx.load(str(path))
             onnx.checker.check_model(model)
         except ImportError:
+            if input_size is not None:
+                raise RuntimeError("缺少 ONNX 校验依赖，无法核对导出尺寸") from None
             return
         except Exception as exc:
             raise ValueError(f"ONNX 结构校验失败: {exc}") from exc
-
-    def _yolo_world_quantize_table(self):
-        candidates = [
-            self.sophon_demo / "sample" / "YOLO_world_v2" / "scripts" / "yoloworld_v2_qtable",
-            self.root / "vendor" / "sophon-demo" / "sample" / "YOLO_world_v2" / "scripts" / "yoloworld_v2_qtable",
-        ]
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate
-        raise ValueError(
-            "YOLO-World V2 INT8 requires the official sophon-demo "
-            "sample/YOLO_world_v2/scripts/yoloworld_v2_qtable. "
-            "Run scripts/setup_sophon.sh or set SOPHON_DEMO to a sophon-demo checkout.")
+        if input_size is not None:
+            width, height = input_size
+            expected = [1, 3, height, width]
+            weights = {tensor.name for tensor in model.graph.initializer}
+            shapes = [[dim.dim_value if dim.HasField("dim_value") else None
+                       for dim in entry.type.tensor_type.shape.dim]
+                      for entry in model.graph.input if entry.name not in weights]
+            if shapes != [expected]:
+                if len(shapes) == 1 and len(shapes[0]) == 4 and shapes[0][:2] == [1, 3]:
+                    actual_height, actual_width = shapes[0][2:]
+                    if actual_height and actual_width:
+                        raise ValueError(f"导出后的 ONNX 输入尺寸为 {actual_width} × {actual_height}，"
+                                         f"与请求的 {width} × {height} 不一致。"
+                                         "请按导出器支持的尺寸重新提交。")
+                raise ValueError(f"导出的 ONNX 输入尺寸为 {shapes}，与请求的 {[expected]} 不一致。"
+                                 "请检查模型的导出要求。")
 
     def _package_sdk(self, task, cfg, onnx_models, outputs, work):
         stage = work / "sdk"
@@ -348,6 +340,8 @@ class Pipeline:
             "intermediate_model": ({name: f"model/{path.name}" for name, path in onnx_models.items()}
                                    if len(onnx_models) > 1 else f"model/{primary_onnx.name}"),
         }
+        if cfg.get("calibration"):
+            manifest["calibration"] = cfg["calibration"]
         (stage / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         backend_format = "BModel" if task["backend"] == "bmodel" else "RKNN"
         runtime_note = (

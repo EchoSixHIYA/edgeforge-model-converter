@@ -33,7 +33,7 @@ def test_health_and_catalog(tmp_path):
     assert {backend["id"] for backend in data["backends"]} >= {"rknn", "bmodel"}
     assert len(data["models"]) == 34
     assert all("status" in model and "blocker" in model for model in data["models"])
-    assert data["models"][2]["vendor_support"]["sophon"]["platforms"] == ["bm1684", "bm1684x"]
+    assert BY_ID["yolov5"]["vendor_support"]["sophon"]["platform_precisions"]["bm1684"] == ["f32", "i8"]
     assert BY_ID["yolov8_obb"]["vendor_support"]["sophon"]["input_size"] == [1024, 1024]
     assert BY_ID["yolox"]["vendor_support"]["sophon"]["weight_formats"] == [".pth"]
     assert BY_ID["yolov9"]["vendor_support"]["sophon"]["blocker"] == ""
@@ -90,6 +90,66 @@ def test_architecture_selector_uses_vendor_neutral_groups(tmp_path):
     assert "data-label=" in body
 
 
+def test_cv_workbench_offers_builtin_int8_without_calibration_upload(tmp_path):
+    client = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)}).test_client()
+    body = client.get("/").get_data(as_text=True)
+    cv_form = body.split('id="convertForm"', 1)[1].split("</form>", 1)[0]
+    assert 'name="calibration"' not in cv_form
+    assert 'value="i8"' in cv_form and 'value="u8"' not in cv_form
+    assert 'value="w4bf16"' in body  # Separate HF VLM pipeline.
+    for model in client.get("/api/catalog").get_json()["models"]:
+        if model.get("input_kind") == "hf_directory":
+            continue
+        assert set(model["precisions"]) <= {"fp", "f32", "f16", "bf16", "i8"}
+        for support in model["vendor_support"].values():
+            assert set(support["precisions"]) <= {"fp", "f32", "f16", "bf16", "i8"}
+
+
+@pytest.mark.parametrize("vendor,platform,precision", [
+    ("rockchip", "rv1126", "i8"), ("rockchip", "rk3588", "u8"),
+    ("sophon", "bm1684x", "u8"),
+])
+def test_cv_api_rejects_unregistered_quantized_precision(tmp_path, vendor, platform, precision):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": vendor, "architecture": "yolov8", "platform": platform, "precision": precision,
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 400
+    assert "精度" in response.get_json()["error"]
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("vendor,platform,architecture", [
+    ("rockchip", "rk3588", "yolov8"), ("rockchip", "rk3568", "yolov5"),
+    ("sophon", "bm1684x", "yolov8"), ("sophon", "bm1684", "yolo11"),
+])
+def test_cv_api_accepts_int8_without_user_calibration(tmp_path, monkeypatch, vendor, platform, architecture):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
+    manager = app.extensions["task_manager"]
+    monkeypatch.setattr(manager.executor, "submit", lambda *args: None)
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": vendor, "architecture": architecture, "platform": platform, "precision": "i8",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+    })
+    assert response.status_code == 202
+    assert response.get_json()["precision"] == "i8"
+
+
+def test_cv_api_does_not_save_legacy_calibration_upload(tmp_path, monkeypatch):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
+    manager = app.extensions["task_manager"]
+    monkeypatch.setattr(manager.executor, "submit", lambda *args: None)
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "rockchip", "architecture": "yolov8", "platform": "rk3588", "precision": "fp",
+        "model": (io.BytesIO(b"weights"), "model.pt"),
+        "calibration": (io.BytesIO(b"old client attachment"), "calib.zip"),
+    })
+    assert response.status_code == 202
+    task = tmp_path / response.get_json()["id"]
+    assert set(path.name for path in task.iterdir()) == {"upload.pt", "task.json"}
+
+
 def test_verified_mobilenet_checkpoint_is_accepted(tmp_path):
     app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path)})
     response = app.test_client().post("/api/tasks", data={
@@ -112,22 +172,45 @@ def test_sophon_yolo_task_is_accepted_with_bm1684x_precision(tmp_path):
     assert task["backend"] == "bmodel"
 
 
-@pytest.mark.parametrize("architecture,filename", [
-    ("yolov8", "model.pt"),
-    ("yolo_world", "model.pth"),
-    ("ppocr", "model.zip"),
-])
-def test_sophon_priority_models_accept_bm1684_target(tmp_path, architecture, filename):
+def test_sophon_bm1684_rejects_fp16_and_retains_fp32(tmp_path):
     app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
+    client = app.test_client()
+    invalid = client.post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "lprnet", "platform": "bm1684", "precision": "f16",
+        "model": (io.BytesIO(b"weights"), "model.pth"),
+    })
+    assert invalid.status_code == 400
+    assert "F32" in invalid.get_json()["error"]
     response = app.test_client().post("/api/tasks", data={
-        "vendor": "sophon", "architecture": architecture, "platform": "bm1684", "precision": "f16",
-        "model": (io.BytesIO(b"weights"), filename),
+        "vendor": "sophon", "architecture": "lprnet", "platform": "bm1684", "precision": "f32",
+        "model": (io.BytesIO(b"weights"), "model.pth"),
     })
     assert response.status_code == 202
     task = response.get_json()
     assert task["vendor"] == "sophon"
     assert task["platform"] == "bm1684"
     assert task["backend"] == "bmodel"
+
+
+def test_sophon_bm1684_rejects_int8_without_builtin_calibration_inputs(tmp_path):
+    app = create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "SKIP_SOPHON_ENV_CHECK": True})
+    response = app.test_client().post("/api/tasks", data={
+        "vendor": "sophon", "architecture": "yolo_world", "platform": "bm1684", "precision": "i8",
+        "model": (io.BytesIO(b"weights"), "model.pth"),
+    })
+    assert response.status_code == 400
+    assert "F32" in response.get_json()["error"]
+    assert not list(tmp_path.iterdir())
+
+
+def test_available_cv_targets_have_floating_precision_for_default_selection():
+    for cfg in BY_ID.values():
+        if cfg.get("input_kind") == "hf_directory":
+            continue
+        for support in cfg["vendor_support"].values():
+            if support["available"]:
+                for chip, precisions in support["platform_precisions"].items():
+                    assert set(precisions) & {"fp", "f32", "f16", "bf16"}, (cfg["id"], chip)
 
 
 def test_sophon_rejects_non_bm_platform(tmp_path):

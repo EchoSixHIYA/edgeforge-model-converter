@@ -221,7 +221,8 @@ def test_bmodel_backend_invokes_tpu_mlir_for_bm1684(monkeypatch, tmp_path):
     assert calls[1][calls[1].index("--quantize") + 1] == "F32"
 
 
-def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
+@pytest.mark.parametrize("use_builtin_list", [False, True])
+def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path, use_builtin_list):
     onnx = tmp_path / "detector.onnx"
     out = tmp_path / "detector.bmodel"
     dataset = tmp_path / "dataset.txt"
@@ -243,16 +244,23 @@ def test_bmodel_backend_calibrates_int8(monkeypatch, tmp_path):
         return Result()
 
     monkeypatch.setattr("server.backends.bmodel.subprocess.run", fake_run)
-    BModelBackend().convert(onnx, out, {
+    options = {
         "platform": "bm1684x", "precision": "i8", "dataset": str(dataset),
         "calibration_dir": str(calibration_dir), "quantize_table": str(quantize_table),
         "catalog": {"id": "yolo_world", "mean": [0, 0, 0], "std": [255, 255, 255], "color_order": "rgb"},
         "component": "detector",
-    }, lambda *_: None)
+    }
+    if use_builtin_list:
+        options.update(calibration_list=str(dataset), calibration_input_num=20)
+    BModelBackend().convert(onnx, out, options, lambda *_: None)
 
     assert [call[0] for call in calls] == ["model_transform.py", "run_calibration.py", "model_deploy.py"]
     assert calls[0][calls[0].index("--input_shapes") + 1] == "[[1,3,640,640],[1,80,512]]"
-    assert calls[1][calls[1].index("--dataset") + 1] == str(calibration_dir.resolve())
+    if use_builtin_list:
+        assert calls[1][calls[1].index("--data_list") + 1] == str(dataset.resolve())
+        assert calls[1][calls[1].index("--input_num") + 1] == "20"
+    else:
+        assert calls[1][calls[1].index("--dataset") + 1] == str(calibration_dir.resolve())
     assert "--calibration_table" in calls[-1]
     assert calls[-1][calls[-1].index("--quantize_table") + 1] == str(quantize_table.resolve())
 

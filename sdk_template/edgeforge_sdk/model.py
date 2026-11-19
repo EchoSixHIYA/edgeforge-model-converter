@@ -178,6 +178,16 @@ class InteractiveMask:
         }
 
 
+# These BModel exports take normalized NCHW images and expose standard YOLO
+# outputs, rather than Rockchip's per-scale, accelerator-friendly outputs.
+_SOPHON_YOLO = {"yolov5", "yolov7", "yolov8", "yolov8_pose", "yolov8_obb",
+                "yolov8_seg", "yolov10", "yolo11"}
+
+
+def _is_sophon_yolo(config):
+    return config.get("backend") == "bmodel" and config.get("architecture") in _SOPHON_YOLO
+
+
 class _ModelBase:
     """Stable inference API for an EdgeForge-generated edge model."""
 
@@ -332,9 +342,15 @@ class _ModelBase:
             if self.config.get("color_order", "rgb").lower() == "rgb":
                 tensor = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB)
             return np.expand_dims(tensor, axis=0), {"original_shape": list(original.shape[:2])}
-        tensor, transform = _letterbox(original, tuple(self.config["input_size"]))
+        sophon_yolo = _is_sophon_yolo(self.config)
+        tensor, transform = _letterbox(original, tuple(self.config["input_size"]),
+                                       padding=114 if sophon_yolo else 0)
         if self.config.get("color_order", "rgb").lower() == "rgb":
             tensor = cv2.cvtColor(tensor, cv2.COLOR_BGR2RGB)
+        if sophon_yolo:
+            mean = np.asarray(self.config.get("mean", [0, 0, 0]), dtype=np.float32).reshape(3, 1, 1)
+            std = np.asarray(self.config.get("std", [255, 255, 255]), dtype=np.float32).reshape(3, 1, 1)
+            tensor = np.ascontiguousarray((tensor.transpose(2, 0, 1).astype(np.float32) - mean) / std)
         return np.expand_dims(tensor, axis=0), {
             "original_shape": list(original.shape[:2]), "transform": list(transform)}
 
@@ -369,9 +385,10 @@ class _ModelBase:
             return [FaceDetection(tuple(float(x) for x in box), float(score),
                                   tuple(tuple(float(x) for x in point) for point in points))
                     for box, score, points in zip(boxes, scores, landmarks)]
+        sophon_yolo = _is_sophon_yolo(self.config)
         if task_type == "pose_estimation" and architecture == "yolov8_pose":
-            boxes, scores, keypoints = _postprocess_yolov8_pose(
-                outputs, tuple(self.config["input_size"]), confidence, iou)
+            decoder = _postprocess_sophon_yolov8_pose if sophon_yolo else _postprocess_yolov8_pose
+            boxes, scores, keypoints = decoder(outputs, tuple(self.config["input_size"]), confidence, iou)
             boxes = _restore_boxes(boxes, tuple(context["transform"]), tuple(context["original_shape"]))
             keypoints = _restore_keypoints(
                 keypoints, tuple(context["transform"]), tuple(context["original_shape"]))
@@ -381,7 +398,8 @@ class _ModelBase:
                          tuple(tuple(float(x) for x in point) for point in points))
                     for box, score, points in zip(boxes, scores, keypoints)]
         if task_type == "oriented_object_detection" and architecture in {"yolov8_obb", "yolo11_obb"}:
-            rects, classes, scores = _postprocess_yolov8_obb(
+            decoder = _postprocess_sophon_yolov8_obb if sophon_yolo else _postprocess_yolov8_obb
+            rects, classes, scores = decoder(
                 outputs, tuple(self.config["input_size"]),
                 len(self.config.get("labels", [])) or 15, confidence, iou)
             rects = _restore_oriented(rects, tuple(context["transform"]),
@@ -406,7 +424,8 @@ class _ModelBase:
                     outputs, tuple(self.config["input_size"]), len(labels) or 80,
                     anchors, confidence, iou)
             else:
-                boxes, classes, scores, masks = _postprocess_yolov8_seg(
+                decoder = _postprocess_sophon_yolov8_seg if sophon_yolo else _postprocess_yolov8_seg
+                boxes, classes, scores, masks = decoder(
                     outputs, tuple(self.config["input_size"]), len(labels) or 80,
                     confidence, iou)
             masks = _restore_masks(masks, tuple(context["transform"]),
@@ -424,8 +443,12 @@ class _ModelBase:
             raise NotImplementedError(
                 f"{architecture} 暂只提供 infer_raw()；该任务类型的结构化后处理器尚未注册")
         labels = self.config.get("labels", [])
-        nc = len(labels) or _infer_classes(outputs)
-        if architecture == "yolox":
+        size = tuple(self.config["input_size"])
+        nc = len(labels) or (None if sophon_yolo else _infer_classes(outputs, size))
+        if sophon_yolo:
+            boxes, classes, scores = _postprocess_sophon_yolo(
+                outputs, size, architecture, nc, self.config.get("anchors"), confidence, iou)
+        elif architecture == "yolox":
             boxes, classes, scores = _postprocess_yolox(
                 outputs, tuple(self.config["input_size"]), nc, confidence, iou)
         elif architecture in {"yolov5", "yolov7"}:
@@ -736,20 +759,32 @@ def _ppocr_ctc(output, characters):
     return "".join(text), float(np.mean(scores)) if scores else 0.0
 
 
-def _letterbox(image, size):
+def _letterbox(image, size, padding=0):
     width, height = size
     h, w = image.shape[:2]
     ratio = min(width / w, height / h)
     nw, nh = int(round(w * ratio)), int(round(h * ratio))
     left, top = (width - nw) // 2, (height - nh) // 2
-    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    canvas = np.full((height, width, 3), padding, dtype=np.uint8)
     canvas[top:top + nh, left:left + nw] = cv2.resize(image, (nw, nh))
     return canvas, (ratio, left, top)
 
 
-def _nchw(value):
+def _nchw(value, size=None, channels=None):
     value = np.asarray(value)
     if value.ndim == 4:
+        if size is not None:
+            width, height = size
+
+            def matches(c, h, w):
+                return (channels is None or c in channels) and h > 0 and w > 0 and (
+                    height % h == width % w == 0 and height // h == width // w)
+
+            if matches(*value.shape[1:]):
+                return value
+            if matches(value.shape[3], value.shape[1], value.shape[2]):
+                return value.transpose(0, 3, 1, 2)
+            return value
         # RKNN/ONNX may return NCHW or NHWC. Spatial axes are square in these
         # YOLO heads, so use their equality instead of comparing magnitudes
         # (80 classes and an 80x80 feature map are otherwise ambiguous).
@@ -759,7 +794,6 @@ def _nchw(value):
 
 
 def _dfl(position):
-    position = _nchw(position)
     n, c, h, w = position.shape
     bins = c // 4
     value = position.reshape(n, 4, bins, h, w)
@@ -769,7 +803,7 @@ def _dfl(position):
 
 
 def _decode(position, size):
-    position = _nchw(position)
+    position = _nchw(position, size, {4, 64})
     if position.shape[1] != 4:
         position = _dfl(position)
     h, w = position.shape[2:]
@@ -781,10 +815,10 @@ def _decode(position, size):
     return np.concatenate((xy1, xy2), axis=1).transpose(0, 2, 3, 1).reshape(-1, 4)
 
 
-def _infer_classes(outputs):
+def _infer_classes(outputs, size=None):
     channels = []
     for output in outputs:
-        value = _nchw(output)
+        value = _nchw(output, size)
         if value.ndim == 4:
             channels.append(value.shape[1])
     candidates = [x for x in channels if x not in {1, 64}]
@@ -793,12 +827,137 @@ def _infer_classes(outputs):
     return min(candidates)
 
 
+def _sophon_yolo_rows(output, channels, *, channel_first):
+    value = np.asarray(output, dtype=np.float32)
+    if value.ndim != 3 or value.shape[0] != 1:
+        raise ValueError(f"unexpected SOPHGO YOLO output shape: {value.shape}")
+    rows = value[0].T if channel_first else value[0]
+    if channels is not None and rows.shape[1] != channels:
+        raise ValueError(f"SOPHGO YOLO output has {rows.shape[1]} channels; expected {channels}")
+    return rows
+
+
+def _center_to_corners(xywh):
+    half = xywh[:, 2:4] / 2
+    return np.concatenate((xywh[:, :2] - half, xywh[:, :2] + half), axis=1)
+
+
+def _top_classes(probabilities):
+    classes = probabilities.argmax(axis=1)
+    return classes, probabilities[np.arange(len(probabilities)), classes]
+
+
+def _sophon_nms(boxes, scores, classes, confidence, iou, *, rotated=False):
+    valid_extent = (boxes[:, 2:4] > 0 if rotated else boxes[:, 2:4] > boxes[:, :2]).all(axis=1)
+    keep = np.flatnonzero(np.isfinite(boxes).all(axis=1) & valid_extent & np.isfinite(scores) & (scores >= confidence))
+    selected = []
+    for class_id in np.unique(classes[keep]):
+        ids = keep[classes[keep] == class_id]
+        if rotated:
+            rects = [((float(x), float(y)), (float(w), float(h)), float(np.degrees(angle)))
+                     for x, y, w, h, angle in boxes[ids]]
+            local = cv2.dnn.NMSBoxesRotated(rects, scores[ids].tolist(), 0.0, iou)
+        else:
+            xywh = boxes[ids].copy()
+            xywh[:, 2:4] -= xywh[:, :2]
+            local = cv2.dnn.NMSBoxes(xywh.tolist(), scores[ids].tolist(), 0.0, iou)
+        if len(local):
+            selected.extend(ids[np.asarray(local).reshape(-1)].tolist())
+    selected = np.array(selected, dtype=np.int64)
+    return selected[np.argsort(-scores[selected])[:300]]
+
+
+def _postprocess_sophon_yolo(outputs, size, architecture, nc, anchors, confidence, iou):
+    if architecture == "yolov7" and outputs and all(np.asarray(output).ndim == 5 for output in outputs):
+        # The vendored YOLOv7 ONNX exporter emits [1,anchors,h,w,5+nc] logits.
+        if not anchors or len(anchors) != len(outputs):
+            raise ValueError("SOPHGO YOLOv7 requires model-specific anchors for each feature map")
+        maps = []
+        for output, branch_anchors in zip(outputs, anchors):
+            logits = np.asarray(output, dtype=np.float32)
+            batch, count, height, width, channels = logits.shape
+            if batch != 1 or count != len(branch_anchors) or (nc is not None and channels != nc + 5):
+                raise ValueError(f"unexpected SOPHGO YOLOv7 output shape: {logits.shape}")
+            probs = 1.0 / (1.0 + np.exp(-np.clip(logits, -80, 80)))
+            maps.append(probs.transpose(0, 1, 4, 2, 3).reshape(batch, count * channels, height, width))
+        return _postprocess_yolov5(maps, size, nc or channels - 5, anchors, confidence, iou)
+
+    if architecture in {"yolov5", "yolov7"}:
+        # YOLOv5 returns one decoded [1,N,5+nc] tensor per scale, with objectness.
+        rows = np.concatenate([_sophon_yolo_rows(out, 5 + nc if nc else None, channel_first=False)
+                               for out in outputs], axis=0)
+        classes, scores = _top_classes(rows[:, 5:])
+        scores *= rows[:, 4]
+    elif architecture == "yolov10":
+        if len(outputs) != 1:
+            raise ValueError("SOPHGO YOLOv10 expects a single [1,N,6] output")
+        rows = _sophon_yolo_rows(outputs[0], 6, channel_first=False)
+        # Exported end-to-end graph already returns XYXY, score and class ID.
+        valid = (np.isfinite(rows).all(axis=1) & (rows[:, 4] >= confidence) &
+                 (rows[:, 5] >= 0) & ((rows[:, 2:4] - rows[:, :2]) > 0).all(axis=1))
+        if nc is not None:
+            valid &= rows[:, 5] < nc
+        rows = rows[valid]
+        return rows[:, :4], rows[:, 5].astype(np.int64), rows[:, 4]
+    else:
+        if len(outputs) != 1:
+            raise ValueError("SOPHGO YOLO expects a single [1,4+nc,N] output")
+        rows = _sophon_yolo_rows(outputs[0], 4 + nc if nc else None, channel_first=True)
+        classes, scores = _top_classes(rows[:, 4:])
+    boxes = _center_to_corners(rows[:, :4])
+    keep = _sophon_nms(boxes, scores, classes, confidence, iou)
+    return boxes[keep], classes[keep], scores[keep]
+
+
+def _postprocess_sophon_yolov8_pose(outputs, size, confidence, iou):
+    if len(outputs) != 1:
+        raise ValueError("SOPHGO YOLOv8 Pose expects a single [1,56,N] output")
+    rows = _sophon_yolo_rows(outputs[0], 56, channel_first=True)
+    boxes, scores = _center_to_corners(rows[:, :4]), rows[:, 4]
+    keep = _sophon_nms(boxes, scores, np.zeros(len(scores), dtype=np.int64), confidence, iou)
+    return boxes[keep], scores[keep], rows[keep, 5:].reshape(-1, 17, 3)
+
+
+def _postprocess_sophon_yolov8_obb(outputs, size, nc, confidence, iou):
+    if len(outputs) != 1:
+        raise ValueError("SOPHGO YOLOv8 OBB expects a single [1,5+nc,N] output")
+    rows = _sophon_yolo_rows(outputs[0], 5 + nc, channel_first=True)
+    classes, scores = _top_classes(rows[:, 4:4 + nc])
+    rects = np.concatenate((rows[:, :4], rows[:, -1:]), axis=1)
+    keep = _sophon_nms(rects, scores, classes, confidence, iou, rotated=True)
+    return rects[keep], classes[keep], scores[keep]
+
+
+def _postprocess_sophon_yolov8_seg(outputs, size, nc, confidence, iou):
+    predictions = [out for out in outputs if np.asarray(out).ndim == 3]
+    prototypes = [out for out in outputs if np.asarray(out).ndim == 4]
+    if len(predictions) != 1 or len(prototypes) != 1 or len(outputs) != 2:
+        raise ValueError("SOPHGO YOLOv8 Seg expects one prediction tensor and one mask prototype")
+    proto = _nchw(prototypes[0], size, {32}).astype(np.float32)
+    if proto.shape[:2] != (1, 32):
+        raise ValueError(f"unexpected SOPHGO YOLOv8 Seg prototype shape: {proto.shape}")
+    rows = _sophon_yolo_rows(predictions[0], 4 + nc + 32, channel_first=True)
+    boxes = _center_to_corners(rows[:, :4])
+    classes, scores = _top_classes(rows[:, 4:4 + nc])
+    keep = _sophon_nms(boxes, scores, classes, confidence, iou)
+    if not len(keep):
+        return boxes[keep], classes[keep], scores[keep], np.empty((0, size[1], size[0]), dtype=bool)
+    logits = rows[keep, 4 + nc:] @ proto[0].reshape(32, -1)
+    masks = (1.0 / (1.0 + np.exp(-np.clip(logits, -80, 80)))).reshape(-1, *proto.shape[2:])
+    resized = np.stack([cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR) for mask in masks])
+    col = np.arange(size[0])[None, :]
+    row = np.arange(size[1])[:, None]
+    for mask, (x1, y1, x2, y2) in zip(resized, boxes[keep]):
+        mask *= (col >= x1) & (col < x2) & (row >= y1) & (row < y2)
+    return boxes[keep], classes[keep], scores[keep], resized > .5
+
+
 def _postprocess_dfl(outputs, size, nc, confidence, iou, nms):
     branches, step = 3, len(outputs) // 3
     boxes, probs = [], []
     for i in range(branches):
         boxes.append(_decode(outputs[i * step], size))
-        score = _nchw(outputs[i * step + 1]).transpose(0, 2, 3, 1).reshape(-1, nc)
+        score = _nchw(outputs[i * step + 1], size, {nc}).transpose(0, 2, 3, 1).reshape(-1, nc)
         probs.append(score)
     boxes, probs = np.concatenate(boxes), np.concatenate(probs)
     classes = probs.argmax(axis=1)
@@ -822,12 +981,12 @@ def _postprocess_dfl(outputs, size, nc, confidence, iou, nms):
 
 
 def _decode_yolov5(value, anchors, size, nc):
-    value = _nchw(value)
+    anchor_count = len(anchors)
+    expected = anchor_count * (nc + 5)
+    value = _nchw(value, size, {expected})
     if value.ndim != 4 or value.shape[0] != 1:
         raise ValueError(f"unexpected YOLOv5 output shape: {value.shape}")
     _, channels, height, width = value.shape
-    anchor_count = len(anchors)
-    expected = anchor_count * (nc + 5)
     if channels != expected:
         raise ValueError(
             f"YOLOv5 output has {channels} channels; expected {expected} "
@@ -908,7 +1067,7 @@ def _postprocess_yolov8_pose(outputs, size, confidence, iou):
     boxes, scores, source_ids = [], [], []
     offset = 0
     for output in outputs[:3]:
-        value = _nchw(output)
+        value = _nchw(output, size, {65})
         if value.ndim != 4 or value.shape[1] != 65:
             raise ValueError(f"unexpected YOLOv8 Pose detection shape: {value.shape}")
         count = value.shape[2] * value.shape[3]
@@ -939,15 +1098,15 @@ def _postprocess_yolov8_obb(outputs, size, nc, confidence, iou):
     if len(outputs) != 4:
         raise ValueError(f"YOLOv8 OBB expected 4 output tensors, got {len(outputs)}")
     angle_feature = np.asarray(outputs[3], dtype=np.float32).reshape(-1)
-    expected = sum(size_ * size_ for size_ in (80, 40, 20))
+    features = [_nchw(output, size, {64 + nc}) for output in outputs[:3]]
+    if any(value.ndim != 4 or value.shape[1] != 64 + nc for value in features):
+        raise ValueError(f"unexpected YOLOv8 OBB detection shapes: {[value.shape for value in features]}")
+    expected = sum(value.shape[2] * value.shape[3] for value in features)
     if angle_feature.size != expected:
         raise ValueError(f"unexpected YOLOv8 OBB angle shape: {np.asarray(outputs[3]).shape}")
     rects, probabilities, source_ids = [], [], []
     offset = 0
-    for output in outputs[:3]:
-        value = _nchw(output)
-        if value.ndim != 4 or value.shape[1] != 64 + nc:
-            raise ValueError(f"unexpected YOLOv8 OBB detection shape: {value.shape}")
+    for value in features:
         position = _dfl(value[:, :64])
         _, _, height, width = position.shape
         count = height * width
@@ -991,8 +1150,8 @@ def _postprocess_yolov8_seg(outputs, size, nc, confidence, iou):
     for branch in range(3):
         base = branch * 4
         boxes.append(_decode(outputs[base], size))
-        score = _nchw(outputs[base + 1])
-        coeff = _nchw(outputs[base + 3])
+        score = _nchw(outputs[base + 1], size, {nc})
+        coeff = _nchw(outputs[base + 3], size, {32})
         if score.shape[1] != nc or coeff.shape[1] != 32:
             raise ValueError(
                 f"unexpected YOLOv8 Seg branch shapes: {score.shape}, {coeff.shape}")
@@ -1020,7 +1179,7 @@ def _postprocess_yolov8_seg(outputs, size, nc, confidence, iou):
     selected = selected[np.argsort(scores[selected])[::-1]][:300]
     boxes, classes, scores, coefficients = (
         boxes[selected], classes[selected], scores[selected], coefficients[selected])
-    proto = _nchw(outputs[-1]).astype(np.float32)
+    proto = _nchw(outputs[-1], size, {32}).astype(np.float32)
     if proto.shape[0] != 1 or proto.shape[1] != 32:
         raise ValueError(f"unexpected YOLOv8 Seg prototype shape: {proto.shape}")
     logits = coefficients @ proto[0].reshape(32, -1)
@@ -1043,8 +1202,8 @@ def _postprocess_yolov5_seg(outputs, size, nc, anchors, confidence, iou):
     for branch in range(3):
         detected = _decode_yolov5(outputs[branch * 2], anchors[branch], size, nc)
         decoded.append(detected)
-        coeff = _nchw(outputs[branch * 2 + 1])
         anchor_count = len(anchors[branch])
+        coeff = _nchw(outputs[branch * 2 + 1], size, {anchor_count * 32})
         if coeff.shape[1] != anchor_count * 32:
             raise ValueError(f"unexpected YOLOv5 Seg coefficient shape: {coeff.shape}")
         _, _, height, width = coeff.shape
@@ -1073,7 +1232,7 @@ def _postprocess_yolov5_seg(outputs, size, nc, anchors, confidence, iou):
     selected = selected[np.argsort(scores[selected])[::-1]][:300]
     boxes, classes, scores, coefficients = (
         boxes[selected], classes[selected], scores[selected], coefficients[selected])
-    proto = _nchw(outputs[-1]).astype(np.float32)
+    proto = _nchw(outputs[-1], size, {32}).astype(np.float32)
     if proto.shape[0] != 1 or proto.shape[1] != 32:
         raise ValueError(f"unexpected YOLOv5 Seg prototype shape: {proto.shape}")
     logits = coefficients @ proto[0].reshape(32, -1)

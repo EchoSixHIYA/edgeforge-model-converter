@@ -2,6 +2,8 @@
 
 /* HF directory VLM workflow stays separate from the original upload pipeline. */
 .hidden { display: none !important; }
+.input-size-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.input-size-help { margin-bottom: 0; }
 .workflow-switch { display: flex; gap: 12px; margin-bottom: 20px; scroll-margin-top: 85px; }
 .workflow-tab { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 16px 18px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--muted); cursor: pointer; text-align: left; }
 .workflow-tab b { font-size: 14px; }

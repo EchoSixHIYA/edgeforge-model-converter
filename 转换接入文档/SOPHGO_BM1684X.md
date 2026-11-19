@@ -8,7 +8,7 @@ EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端�
 原始权重
   -> SOPHGO 友好 ONNX
   -> TPU-MLIR model_transform.py
-  -> run_calibration.py (INT8)
+  -> run_calibration.py（仅 INT8，使用内置样本）
   -> model_deploy.py
   -> BM1684/BM1684X .bmodel
   -> SOPHON-SAIL Python SDK
@@ -35,7 +35,7 @@ EdgeForge 的 SOPHGO 链路与 RKNN 链路并列存在，不复用 RKNN 后端�
 - YOLO-World V2
 - PP-OCRv4
 
-YOLO-World V2 在官方样例中包含 detector 与 `clip_text_vitb32` 两个 ONNX/BModel 组件，因此 SDK 包会保留多模型结构。detector 的 TPU-MLIR 输入形状为 `[[1,3,640,640],[1,80,512]]`，text tower 的 token 输入形状为 `[[1,77]]`。FP32/FP16 直接部署；INT8 detector 会额外使用官方 `sample/YOLO_world_v2/scripts/yoloworld_v2_qtable`，text tower 仍按官方链路生成 FP16 BModel。
+YOLO-World V2 在官方样例中包含 detector 与 `clip_text_vitb32` 两个 ONNX/BModel 组件，因此 SDK 包会保留多模型结构。detector 的 TPU-MLIR 输入形状为 `[[1,3,640,640],[1,80,512]]`，text tower 的 token 输入形状为 `[[1,77]]`。
 
 PP-OCRv4 在官方样例中拆成检测 det 与识别 rec 两个组件。当前工作台接受含官方 Paddle inference det/rec tar 的 ZIP，先导出 `det.onnx` / `rec.onnx`，再分别进入 TPU-MLIR：det 首版固定为 `[[1,3,640,640]]`，rec 固定为 `[[1,3,48,320]]`。官方脚本还提供 batch 1/4 合并 BModel 的路径；EdgeForge 当前先接单 batch 版本，后续验收多 batch 再打开组合产物。
 
@@ -48,14 +48,14 @@ PP-OCRv4 在官方样例中拆成检测 det 与识别 rec 两个组件。当前�
 - `bf16` -> `--quantize BF16`
 - `i8` -> `--quantize INT8`
 
-INT8 必须上传校准图片 ZIP。服务端会同时生成两种校准输入：`dataset.txt` 继续供 RKNN 使用；SOPHGO 后端把解压后的图片目录传给 `run_calibration.py --dataset`，与 `sophon-demo` 官方脚本保持一致。
+INT8 自动使用 RKNN Model Zoo 的 20 张 COCO 样本，不需要用户上传图片。已登记 INT8 且可用单图校准的架构均可选择；代表性转换测试覆盖 YOLOv8（BM1684/BM1684X）和 YOLO11（BM1684X）。BM1684 不提供 FP16；工作台按架构和芯片显示可选精度。
 
 ## 环境要求
 
 转换机需要先进入官方 TPU-MLIR 环境，并确保以下命令在 `PATH` 中：
 
 - `model_transform.py`
-- `run_calibration.py`，仅 INT8 需要
+- `run_calibration.py`（仅 INT8）
 - `model_deploy.py`
 
 准备官方样例仓库并检查当前 shell 是否已进入 TPU-MLIR/SAIL 环境：

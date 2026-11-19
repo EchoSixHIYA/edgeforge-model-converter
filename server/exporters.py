@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .catalog import BY_ID
+from .input_sizes import resolve_input_size
 from .sophon_models import sophon_model
 
 
@@ -61,15 +62,16 @@ class ArchitectureExporters:
             return suffix.lower() == ".pth"
         return suffix.lower() == ".pt" and architecture in self.ROCKCHIP_REPOS
 
-    def export(self, source, work, architecture, vendor, progress):
+    def export(self, source, work, architecture, vendor, progress, *, input_size=None):
         if not self.supports(architecture, source.suffix, vendor):
             raise ValueError(f"{architecture} 尚未注册 {vendor} 的 {source.suffix} 导出器；请上传模型目录声明的原始权重格式")
+        input_size = resolve_input_size(BY_ID[architecture], vendor, input_size)
         if vendor == "sophon":
             if architecture == "ppocr":
                 return self._export_ppocr(source, work, progress, det_input_size=640)
             if architecture == "lprnet":
                 return self._export_sophon_lprnet(source, work, progress)
-            return self._export_sophon_yolo(source, work, architecture, progress, BY_ID[architecture])
+            return self._export_sophon_yolo(source, work, architecture, progress, input_size)
         if architecture in {"mobilenet", "resnet"}:
             output = work / "model.onnx"
             model_name = "mobilenet_v2" if architecture == "mobilenet" else "resnet50"
@@ -243,6 +245,7 @@ class ArchitectureExporters:
             ], repo)
             return {"detector": detector, "text": text_model}
         family = self.ROCKCHIP_REPOS[architecture]
+        height_width = [str(value) for value in reversed(input_size)]
         metadata = work / "export_metadata.json"
         progress(24, f"调用 {family.upper()} 的 Rockchip 官方导出器")
         if family == "yolox":
@@ -266,7 +269,7 @@ class ArchitectureExporters:
         if family == "yolov5":
             repo = self.repos / "yolov5"
             cmd = [sys.executable, "export.py", "--rknpu", "--weights", str(source.resolve()),
-                   "--include", "onnx", "--opset", "12", "--simplify"]
+                   "--include", "onnx", "--opset", "12", "--simplify", "--imgsz", *height_width]
             self._run(cmd, repo)
             self._run([
                 sys.executable, str(self.root / "server" / "yolov5_metadata_worker.py"),
@@ -276,7 +279,7 @@ class ArchitectureExporters:
             repo = self.repos / "yolov6"
             self._run([
                 sys.executable, "deploy/RKNN/export_onnx_for_rknn.py",
-                "--weights", str(source.resolve()), "--device", "cpu",
+                "--weights", str(source.resolve()), "--device", "cpu", "--img-size", *height_width,
             ], repo)
             self._run([
                 sys.executable, str(self.root / "server" / "yolov6_metadata_worker.py"),
@@ -291,7 +294,7 @@ class ArchitectureExporters:
             repo = self.repos / "yolov7"
             self._run([
                 sys.executable, "export.py", "--rknpu", "--weights",
-                str(source.resolve()), "--device", "cpu",
+                str(source.resolve()), "--device", "cpu", "--img-size", *height_width,
             ], repo)
             self._run([
                 sys.executable, str(self.root / "server" / "yolov7_metadata_worker.py"),
@@ -302,13 +305,14 @@ class ArchitectureExporters:
             repo = self.repos / family
             cmd = [sys.executable, str(self.root / "server" / "export_worker.py"),
                    "--repo", str(repo), "--model", str(source.resolve()),
-                   "--format", "rknn", "--opset", "12", "--imgsz", "640",
+                   "--format", "rknn", "--opset", "12", "--imgsz", *height_width,
                    "--metadata", str(metadata)]
             self._run(cmd, repo)
         else:
             repo = self.root / "vendor" / "yolov10"
             cmd = [sys.executable, str(self.root / "server" / "export_worker.py"),
-                   "--repo", str(repo), "--model", str(source.resolve()), "--format", "rknn", "--opset", "13"]
+                   "--repo", str(repo), "--model", str(source.resolve()), "--format", "rknn", "--opset", "13",
+                   "--imgsz", *height_width]
             cmd.extend(["--metadata", str(metadata)])
             self._run(cmd, repo)
         candidates = sorted(source.parent.glob(f"{source.stem}*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -346,13 +350,11 @@ class ArchitectureExporters:
             outputs = {"det": det, "cls": cls, "rec": rec}
         return outputs
 
-    def _export_sophon_yolo(self, source, work, architecture, progress, cfg):
+    def _export_sophon_yolo(self, source, work, architecture, progress, input_size):
         metadata = work / "export_metadata.json"
         output = work / "model.onnx"
         sophon_cfg = sophon_model(architecture) or {}
-        support = cfg.get("vendor_support", {}).get("sophon", {})
-        input_size = support.get("input_size") or sophon_cfg.get("input_size") or cfg.get("input_size") or [640, 640]
-        imgsz = str(int(input_size[0]))
+        height_width = [str(value) for value in reversed(input_size)]
         progress(24, f"Exporting {architecture.upper()} to SOPHGO-friendly ONNX")
         if architecture == "yolo_world":
             detector = work / "detector.onnx"
@@ -424,7 +426,7 @@ class ArchitectureExporters:
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),
-                "--format", "onnx", "--opset", "17", "--imgsz", imgsz,
+                "--format", "onnx", "--opset", "17", "--imgsz", *height_width,
                 "--metadata", str(metadata),
             ], repo)
         elif architecture == "yolov10":
@@ -432,14 +434,14 @@ class ArchitectureExporters:
             self._run([
                 sys.executable, str(self.root / "server" / "export_worker.py"),
                 "--repo", str(repo), "--model", str(source.resolve()),
-                "--format", "onnx", "--opset", "17", "--imgsz", imgsz,
+                "--format", "onnx", "--opset", "17", "--imgsz", *height_width,
                 "--metadata", str(metadata),
             ], repo)
         elif architecture == "yolov5":
             repo = self.repos / "yolov5"
             self._run([
                 sys.executable, "export.py", "--weights", str(source.resolve()),
-                "--include", "onnx", "--opset", "12", "--simplify",
+                "--include", "onnx", "--opset", "12", "--simplify", "--imgsz", *height_width,
             ], repo)
             self._run([
                 sys.executable, str(self.root / "server" / "yolov5_metadata_worker.py"),
@@ -449,7 +451,7 @@ class ArchitectureExporters:
             repo = self.repos / "yolov7"
             self._run([
                 sys.executable, "export.py", "--weights", str(source.resolve()),
-                "--device", "cpu",
+                "--device", "cpu", "--img-size", *height_width,
             ], repo)
             self._run([
                 sys.executable, str(self.root / "server" / "yolov7_metadata_worker.py"),

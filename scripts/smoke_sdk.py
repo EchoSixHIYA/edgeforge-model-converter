@@ -43,7 +43,9 @@ class_names = {
 model = getattr(edgeforge_sdk, class_names[config["architecture"]])(dest / "model")
 tensor, context = model.preprocess(args.image)
 session = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
-if config["modality"] == "audio":
+if tensor.dtype == np.float32 and tuple(tensor.shape) == tuple(session.get_inputs()[0].shape):
+    input_tensor = tensor
+elif config["modality"] == "audio":
     input_tensor = tensor.astype(np.float32)
 else:
     if config.get("input_layout", "nchw") == "nhwc":

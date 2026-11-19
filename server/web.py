@@ -9,6 +9,7 @@ from pathlib import Path
 from flask import Flask, Response, abort, jsonify, render_template, request, send_file
 
 from .catalog import BY_ID, CATALOG, PLATFORMS, VENDORS, VENDOR_BY_ID
+from .input_sizes import INPUT_SIZE_ALIGNMENT, resolve_input_size
 from .pipeline import Pipeline
 from .tasks import TaskManager
 
@@ -100,7 +101,8 @@ def create_app(test_config=None):
 
     @app.get("/")
     def index():
-        return render_template("index.html", catalog=CATALOG, platforms=PLATFORMS, vendors=VENDORS)
+        return render_template("index.html", catalog=CATALOG, platforms=PLATFORMS, vendors=VENDORS,
+                               input_size_alignment=INPUT_SIZE_ALIGNMENT)
 
     @app.get("/health")
     def health():
@@ -197,19 +199,30 @@ def create_app(test_config=None):
         if fields["platform"] not in support["platforms"]:
             return jsonify(error=f"{model_cfg['name']} 在 {vendor['name']} 上支持的平台为: "
                            + ", ".join(x.upper() for x in support["platforms"])), 400
-        if fields["precision"] not in support["precisions"]:
-            return jsonify(error=(f"{model_cfg['name']} 官方支持的精度为: "
-                                  + ", ".join(x.upper() for x in support["precisions"]))), 400
+        allowed_precisions = support.get("platform_precisions", {}).get(fields["platform"], support["precisions"])
+        if fields["precision"] not in allowed_precisions:
+            return jsonify(error=(f"{model_cfg['name']} 在当前转换流程中可选的精度为: "
+                                  + ", ".join(x.upper() for x in allowed_precisions))), 400
+        requested_size = None
+        if "input_width" in request.form or "input_height" in request.form:
+            if not support.get("custom_input_size"):
+                return jsonify(error=f"{model_cfg['name']} 在当前芯片厂家下使用固定输入尺寸"), 400
+            width = request.form.getlist("input_width")
+            height = request.form.getlist("input_height")
+            if len(width) != 1 or len(height) != 1:
+                return jsonify(error="输入尺寸需要同时提供一组宽和高"), 400
+            requested_size = [width[0], height[0]]
+        try:
+            fields["input_size"] = resolve_input_size(model_cfg, fields["vendor"], requested_size)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
         model = request.files["model"]
         suffix = Path(model.filename or "").suffix.lower()
         weight_formats = support.get("weight_formats", model_cfg["weight_formats"])
         if suffix not in set(weight_formats):
             return jsonify(error="unsupported source weight format / 原始权重: " + ", ".join(weight_formats)), 400
-        calibration = request.files.get("calibration")
-        if calibration and calibration.filename and Path(calibration.filename).suffix.lower() != ".zip":
-            return jsonify(error="校准集必须是 ZIP"), 400
         try:
-            return jsonify(manager.create(fields, model, calibration)), 202
+            return jsonify(manager.create(fields, model)), 202
         except Exception as exc:
             return jsonify(error=str(exc)), 400
 

@@ -29,25 +29,22 @@ class TaskManager:
             except Exception:
                 continue
 
-    def create(self, fields, model_file, calibration_file=None):
+    def create(self, fields, model_file):
         task_id = uuid.uuid4().hex
         work = self.data_dir / task_id
         work.mkdir(parents=True)
         source = work / ("upload" + Path(model_file.filename).suffix.lower())
         model_file.save(source)
-        calibration = None
-        if calibration_file and calibration_file.filename:
-            calibration = work / "calibration.zip"
-            calibration_file.save(calibration)
         task = {
             "id": task_id, "status": "queued", "progress": 0, "message": "等待转换",
             "created_at": utc_now(), "started_at": None, "finished_at": None,
             "vendor": fields["vendor"], "architecture": fields["architecture"], "backend": fields["backend"],
             "platform": fields["platform"], "precision": fields["precision"],
             "original_filename": model_file.filename, "source_path": str(source),
-            "calibration_path": str(calibration) if calibration else None,
             "work_dir": str(work), "artifacts": {}, "error": None,
         }
+        if fields.get("input_size") is not None:
+            task["input_size"] = fields["input_size"]
         with self.lock:
             self.tasks[task_id] = task
             self._save(task)

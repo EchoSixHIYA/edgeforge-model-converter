@@ -40,10 +40,12 @@ class RknnBackend(ConversionBackend):
             ret = rknn.load_onnx(**load_options)
             if ret != 0:
                 raise RuntimeError(f"rknn.load_onnx 失败，返回值 {ret}")
-            quant = options["precision"] in ("i8", "u8")
+            if options["precision"] not in {"fp", "i8"}:
+                raise ValueError(f"当前 RKNN-Toolkit2 不支持转换精度 {options['precision']}")
+            quant = options["precision"] == "i8"
             dataset = options.get("dataset") if quant else None
             if quant and not dataset:
-                raise ValueError("INT8/UINT8 量化必须上传校准图片 ZIP")
+                raise ValueError("INT8 转换缺少内置校准数据集")
             progress(65, "构建并优化 RKNN（此阶段通常耗时最长）")
             ret = rknn.build(do_quantization=quant, dataset=dataset)
             if ret != 0:

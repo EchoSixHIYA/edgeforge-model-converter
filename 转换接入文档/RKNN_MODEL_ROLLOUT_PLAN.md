@@ -9,7 +9,7 @@
 1. 确认权威训练仓库、原始权重格式、固定提交和许可证。
 2. 用户上传原始权重，专用 exporter 生成 RKNN 友好 ONNX；禁止公开 ONNX 旁路。
 3. ONNX 通过结构检查，输出节点、布局、dtype 和模型元数据符合官方示例。
-4. FP 模式真实生成目标 RKNN；官方支持 INT8 时，再用真实校准集完成量化构建。
+4. FP 模式真实生成目标 RKNN。
 5. SDK 按任务类型实现 `preprocess / infer_raw / postprocess / predict`，返回稳定结构化结果。
 6. SDK 输出与 RKNN Model Zoo 官方 Python 示例对比：类别/文本一致，置信度与坐标在合理容差内。
 7. SDK ZIP 包含模型、配置、`example.py`、演示输入、`SDK_README.md` 和 `reference/`。

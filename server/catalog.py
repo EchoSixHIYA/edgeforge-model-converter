@@ -7,6 +7,7 @@ structured SDK post-processing, and real acceptance) has been met.
 """
 
 from .sophon_models import SOPHON_PLATFORMS, SOPHON_MODELS
+from .input_sizes import supports_custom_input_size
 
 
 ROCKCHIP_PLATFORMS = [
@@ -29,6 +30,8 @@ _MCU = ["rv1103", "rv1106"]
 _LEGACY = ["rv1109", "rv1126", "rk1808", "rk3399pro"]
 _ALL = _RK2 + _MCU + _LEGACY
 _STANDARD = _RK2 + _LEGACY
+_CV_FLOAT_PRECISIONS = {"fp", "f32", "f16", "bf16"}
+_NOT_IMAGE_ONLY = {"yolo_world", "mobilesam", "clip", "yamnet"}
 
 
 def _item(key, name, category, *, example=None, source="upstream", platforms=None,
@@ -58,17 +61,21 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
     vendor_support = {
         "rockchip": {
             "backend": "rknn", "format": "RKNN", "platforms": list(platforms or _STANDARD),
-            "precisions": list(precisions), "available": rockchip_ready, "verified": verified,
+            "precisions": [value for value in precisions if value in _CV_FLOAT_PRECISIONS],
+            "available": rockchip_ready, "verified": verified,
             "weight_formats": list(weight_formats),
             "status": status, "blocker": blocker or ("" if rockchip_ready else status_label),
             "notes": notes,
         }
     }
+    vendor_precisions = {"rockchip": precisions}
     if sophon_platforms:
         sophon_cfg = SOPHON_MODELS.get(key, {})
+        vendor_precisions["sophon"] = sophon_precisions or sophon_cfg.get("precisions", ("f32", "f16", "i8"))
+        floating = [value for value in vendor_precisions["sophon"] if value in _CV_FLOAT_PRECISIONS]
         vendor_support["sophon"] = {
             "backend": "bmodel", "format": "BModel", "platforms": list(sophon_platforms),
-            "precisions": list(sophon_precisions or sophon_cfg.get("precisions", ("f16", "i8"))),
+            "precisions": floating,
             "input_size": list(sophon_input_size or sophon_cfg.get("input_size") or input_size or [640, 640]),
             "weight_formats": list(sophon_cfg.get("weight_suffixes", weight_formats)),
             "available": sophon_ready, "verified": bool(sophon_verified),
@@ -76,12 +83,31 @@ def _item(key, name, category, *, example=None, source="upstream", platforms=Non
             "blocker": "" if sophon_ready else "SOPHGO exporter/backend is not registered",
             "notes": sophon_notes or sophon_cfg.get("notes", ""),
         }
+    for vendor, profile in vendor_support.items():
+        has_image_int8 = profile["available"] and key not in _NOT_IMAGE_ONLY and "i8" in vendor_precisions[vendor]
+        platform_precisions = {}
+        for chip in profile["platforms"]:
+            choices = list(profile["precisions"])
+            # BM1684 cannot compile FP16/BF16; use registered FP32 or INT8.
+            if vendor == "sophon" and chip == "bm1684":
+                choices = [value for value in choices if value == "f32"]
+            if has_image_int8 and (vendor == "sophon" or chip in _RK2 + _MCU):
+                choices.append("i8")
+            if choices:
+                platform_precisions[chip] = choices
+        profile["platforms"] = list(platform_precisions)
+        profile["platform_precisions"] = platform_precisions
+        profile["precisions"] = list(dict.fromkeys(value for choices in platform_precisions.values()
+                                                    for value in choices))
+        if profile["available"] and supports_custom_input_size(key, vendor):
+            profile["custom_input_size"] = True
     return {
         "id": key, "name": name, "category": category, "example": example or key,
         "source": source, "platforms": list(platforms or _STANDARD),
         "input_size": input_size, "mean": list(mean), "std": list(std),
         "color_order": color_order,
-        "precisions": list(precisions), "notes": notes, "weight_formats": list(weight_formats),
+        "precisions": vendor_support["rockchip"]["precisions"],
+        "notes": notes, "weight_formats": list(weight_formats),
         "catalog_ready": True, "exporter_ready": exporter_ready,
         "postprocess_ready": postprocess_ready, "verified": verified,
         "available": available, "export_ready": available,
